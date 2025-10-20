@@ -40,10 +40,13 @@ export async function initTelegram(config) {
 
     // Set up command handlers
     setupCommands();
+    
+    // Set bot commands menu
+    await setupBotCommands();
 
     log('Telegram bot initialized', 'SUCCESS');
     log(`Allowed users: ${allowedUserIds.join(', ')}`, 'INFO');
-    await sendMessage('🤖 Kraken AI Trader started successfully!');
+    await sendMessage('🤖 Kraken AI Trader started successfully!\n\nKomutları görmek için /help yazın veya menüyü açın.');
   } catch (error) {
     log(`Telegram initialization error: ${error.message}`, 'ERROR');
     isEnabled = false;
@@ -60,10 +63,141 @@ function isAuthorized(userId) {
 }
 
 /**
+ * Set up bot commands menu (appears in Telegram menu)
+ */
+async function setupBotCommands() {
+  if (!bot) return;
+  
+  try {
+    await bot.setMyCommands([
+      { command: 'start', description: '🤖 Botu başlat' },
+      { command: 'status', description: '📊 Pozisyon ve bakiye durumu' },
+      { command: 'daily', description: '📅 Günlük performans raporu' },
+      { command: 'ai_status', description: '🧠 AI parametreleri ve ağırlıklar' },
+      { command: 'optimize', description: '⚙️ Manuel AI optimizasyonu' },
+      { command: 'flat', description: '🚨 Acil pozisyon kapatma' },
+      { command: 'help', description: '❓ Yardım menüsü' }
+    ]);
+    log('Telegram bot commands menu set', 'INFO');
+  } catch (error) {
+    log(`Error setting bot commands: ${error.message}`, 'WARN');
+  }
+}
+
+/**
  * Set up Telegram command handlers
  */
 function setupCommands() {
   if (!bot) return;
+
+  // /start - Welcome message with inline keyboard
+  bot.onText(/\/start/, async (msg) => {
+    if (!isAuthorized(msg.from.id)) {
+      bot.sendMessage(msg.chat.id, '⛔ Unauthorized');
+      return;
+    }
+    
+    const welcomeMessage = `
+🤖 *Kraken AI Trading Bot*
+
+Hoş geldiniz! Bot aktif ve çalışıyor.
+
+📊 *Mevcut Durumu Görün:*
+/status - Pozisyon ve bakiye bilgisi
+/daily - Bugünkü performans
+
+🧠 *AI Yönetimi:*
+/ai\\_status - AI parametreleri
+/optimize - Manuel optimizasyon
+
+🚨 *Acil Durum:*
+/flat - Tüm pozisyonları kapat
+
+❓ Tüm komutlar için: /help
+    `;
+    
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📊 Status', callback_data: 'cmd_status' },
+          { text: '📅 Daily', callback_data: 'cmd_daily' }
+        ],
+        [
+          { text: '🧠 AI Status', callback_data: 'cmd_ai' },
+          { text: '⚙️ Optimize', callback_data: 'cmd_optimize' }
+        ],
+        [
+          { text: '🚨 Flat', callback_data: 'cmd_flat' },
+          { text: '❓ Help', callback_data: 'cmd_help' }
+        ]
+      ]
+    };
+    
+    bot.sendMessage(msg.chat.id, welcomeMessage, { 
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  });
+  
+  // Handle inline keyboard callbacks
+  bot.on('callback_query', async (query) => {
+    if (!isAuthorized(query.from.id)) {
+      bot.answerCallbackQuery(query.id, { text: '⛔ Unauthorized' });
+      return;
+    }
+    
+    const chatId = query.message.chat.id;
+    
+    try {
+      switch (query.data) {
+        case 'cmd_status':
+          const status = await getStatusMessage();
+          bot.sendMessage(chatId, status, { parse_mode: 'Markdown' });
+          break;
+        case 'cmd_daily':
+          const daily = await getDailySummaryMessage();
+          bot.sendMessage(chatId, daily, { parse_mode: 'Markdown' });
+          break;
+        case 'cmd_ai':
+          const aiStatus = await getAIStatusMessage();
+          bot.sendMessage(chatId, aiStatus, { parse_mode: 'Markdown' });
+          break;
+        case 'cmd_optimize':
+          bot.sendMessage(chatId, '🧠 Optimization will run in next cycle');
+          break;
+        case 'cmd_flat':
+          const openTrades = await db.getOpenTrades();
+          if (openTrades.length === 0) {
+            bot.sendMessage(chatId, '✅ No open positions');
+          } else {
+            bot.sendMessage(chatId, 
+              `⚠️ Emergency flat requested!\n${openTrades.length} position(s) marked for closure.`
+            );
+            global.emergencyFlat = true;
+          }
+          break;
+        case 'cmd_help':
+          const helpText = `
+*📱 Komutlar:*
+
+/status - Pozisyon ve bakiye
+/daily - Günlük rapor
+/ai\\_status - AI parametreleri
+/optimize - Manuel optimizasyon
+/flat - Acil pozisyon kapatma
+/help - Bu mesaj
+
+🤖 Bot 24/7 otomatik çalışıyor.
+          `;
+          bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' });
+          break;
+      }
+      
+      bot.answerCallbackQuery(query.id);
+    } catch (error) {
+      bot.answerCallbackQuery(query.id, { text: 'Hata oluştu' });
+    }
+  });
 
   // /status - Get current status
   bot.onText(/\/status/, async (msg) => {
@@ -147,18 +281,55 @@ function setupCommands() {
 
   // /help - Show available commands
   bot.onText(/\/help/, (msg) => {
+    if (!isAuthorized(msg.from.id)) {
+      bot.sendMessage(msg.chat.id, '⛔ Unauthorized');
+      return;
+    }
+    
     const helpText = `
-*Available Commands:*
+🤖 *Kraken AI Trading Bot - Komut Listesi*
 
-/status - Show current positions, balance, and PnL
-/daily - Show today's performance summary
-/ai\\_status - Show AI weights and parameters
-/flat - Emergency close all positions
-/help - Show this help message
+📊 *Durum Komutları:*
+/status - Pozisyon, bakiye ve PnL bilgisi
+/daily - Bugünkü performans özeti
 
-🤖 Kraken AI Trader Bot
+🧠 *AI Yönetimi:*
+/ai\\_status - AI ağırlıkları ve parametreler
+/optimize - Manuel AI optimizasyonu tetikle
+
+🚨 *Acil Durum:*
+/flat - Tüm pozisyonları acil kapat
+
+💡 *Diğer:*
+/start - Ana menüyü göster
+/help - Bu yardım mesajını göster
+
+⚙️ *Özellikler:*
+✅ 24/7 Otomatik Trading
+✅ AI Öğrenme Sistemi
+✅ Risk Yönetimi
+✅ Tek Pozisyon Kuralı
+✅ Telegram Bildirimleri
+
+📱 Komutları görmek için sol alt köşedeki menü butonunu kullanabilirsiniz.
     `;
-    bot.sendMessage(msg.chat.id, helpText, { parse_mode: 'Markdown' });
+    
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📊 Status', callback_data: 'cmd_status' },
+          { text: '📅 Daily', callback_data: 'cmd_daily' }
+        ],
+        [
+          { text: '🧠 AI Status', callback_data: 'cmd_ai' }
+        ]
+      ]
+    };
+    
+    bot.sendMessage(msg.chat.id, helpText, { 
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
   });
 
   log('Telegram commands registered', 'INFO');

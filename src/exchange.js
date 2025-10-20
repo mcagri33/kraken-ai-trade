@@ -563,13 +563,24 @@ export async function getAllBaseBalances() {
     
     const bases = {};
     for (const [currency, amounts] of Object.entries(balance)) {
-      if (currency !== 'free' && currency !== 'used' && currency !== 'total' && currency !== 'info') {
-        if (amounts.free > 0 || amounts.used > 0) {
-          bases[currency] = {
-            free: amounts.free || 0,
-            used: amounts.used || 0,
-            total: amounts.total || 0
-          };
+      // Skip special keys and validate amounts is an object
+      if (currency !== 'free' && 
+          currency !== 'used' && 
+          currency !== 'total' && 
+          currency !== 'info' && 
+          currency !== 'timestamp' && 
+          currency !== 'datetime' &&
+          typeof amounts === 'object' && 
+          amounts !== null) {
+        
+        // Safely extract values with null checks
+        const free = parseFloat(amounts.free) || 0;
+        const used = parseFloat(amounts.used) || 0;
+        const total = parseFloat(amounts.total) || 0;
+        
+        // Only add if there's actual balance
+        if (free > 0 || used > 0 || total > 0) {
+          bases[currency] = { free, used, total };
         }
       }
     }
