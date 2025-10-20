@@ -336,12 +336,16 @@ export async function getDailySummary(day = getCurrentDate()) {
  * @returns {Promise<Array>} Array of daily summaries
  */
 export async function getRecentSummaries(days = 7) {
+  // Ensure days is a safe integer
+  const safeDays = parseInt(days) || 7;
+  
+  // Use direct interpolation for LIMIT (safe since we validate the input)
   const query = `
     SELECT * FROM daily_summary 
     ORDER BY day DESC 
-    LIMIT ?
+    LIMIT ${safeDays}
   `;
-  const [rows] = await pool.execute(query, [days]);
+  const [rows] = await pool.execute(query);
   return rows;
 }
 
@@ -397,12 +401,17 @@ export async function insertWeights(weights) {
  * @returns {Promise<Array>} Array of weight records
  */
 export async function getWeightsHistory(limit = 10) {
+  // Ensure limit is a safe integer to prevent SQL injection
+  const safeLimit = parseInt(limit) || 10;
+  
+  // Use direct interpolation for LIMIT (safe since we validate the input)
+  // MySQL prepared statements sometimes have issues with LIMIT parameters
   const query = `
     SELECT * FROM ai_weights 
     ORDER BY updated_at DESC 
-    LIMIT ?
+    LIMIT ${safeLimit}
   `;
-  const [rows] = await pool.execute(query, [limit]);
+  const [rows] = await pool.execute(query);
   return rows;
 }
 
