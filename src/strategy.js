@@ -133,6 +133,23 @@ export function analyzeMarket(ohlcv, params, weights) {
 
   // Determine action
   // BUY signal: bullish regime + trend + oversold + volatility OK + volume strong + confidence >= threshold
+  
+  // Debug: Log why we're not buying when RSI is oversold
+  if (isOversold) {
+    const reasons = [];
+    if (!inBullishRegime) reasons.push(`❌ bearish regime (price ${closedPrice.toFixed(2)} < EMA200 ${ema200.toFixed(2)})`);
+    if (!trendIsBullish) reasons.push(`❌ bearish trend (EMA20 ${ema20.toFixed(2)} < EMA50 ${ema50.toFixed(2)})`);
+    if (!volatilityOK) reasons.push(`❌ volatility (ATR=${atrPct.toFixed(2)}%, range: ${params.ATR_LOW_PCT}-${params.ATR_HIGH_PCT}%)`);
+    if (!volumeStrong) reasons.push(`❌ volume weak (Z-score=${volZScore.toFixed(2)}, min: ${params.VOL_Z_MIN})`);
+    if (confidence < 0.65) reasons.push(`❌ low confidence (${confidence.toFixed(3)} < 0.65)`);
+    
+    if (reasons.length > 0) {
+      log(`🔍 RSI oversold (${rsi.toFixed(1)}) but NO BUY: ${reasons.join(', ')}`, 'WARN');
+    } else {
+      log(`✅ All conditions met! RSI=${rsi.toFixed(1)}, confidence=${confidence.toFixed(3)}`, 'SUCCESS');
+    }
+  }
+  
   if (inBullishRegime && trendIsBullish && isOversold && volatilityOK && volumeStrong) {
     if (confidence >= 0.65) {
       signal.action = 'BUY';
