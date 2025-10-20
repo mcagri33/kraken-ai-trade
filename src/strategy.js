@@ -62,8 +62,14 @@ export function analyzeMarket(ohlcv, params, weights) {
     return null;
   }
 
-  // Regime filter: check closed price against EMA200 (bullish regime)
-  const inBullishRegime = closedPrice > ema200;
+  // Regime filter: Skip EMA filter for extreme oversold (RSI < 30)
+  // Rationale: When RSI is extremely low, it's a strong buy signal regardless of trend
+  const isExtremeOversold = rsi < 30;
+  const inBullishRegime = isExtremeOversold ? true : (closedPrice > ema200);
+  
+  if (isExtremeOversold) {
+    log(`Extreme oversold detected (RSI=${rsi.toFixed(1)}) - EMA filter bypassed`, 'SUCCESS');
+  }
   
   // Trend: EMA20 > EMA50
   const trendIsBullish = ema20 > ema50;
@@ -135,10 +141,14 @@ export function analyzeMarket(ohlcv, params, weights) {
   }
   
   // SELL signal: overbought or bearish conditions
+  // Note: In spot trading, SELL only matters if we have a position
   if (isOverbought || !inBullishRegime) {
     signal.action = 'SELL';
-    const reason = isOverbought ? 'overbought' : 'bearish regime';
-    log(`SELL signal generated: ${reason}, RSI=${rsi.toFixed(1)}`, 'INFO');
+    // Only log if extreme conditions (reduce log spam)
+    if (isOverbought && rsi > 70) {
+      const reason = isOverbought ? 'overbought' : 'bearish regime';
+      log(`SELL signal: ${reason}, RSI=${rsi.toFixed(1)}`, 'INFO');
+    }
   }
 
   return signal;
