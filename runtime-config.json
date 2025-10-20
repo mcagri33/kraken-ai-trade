@@ -1,7 +1,7 @@
 {
   "rsi_oversold": 35,
   "rsi_overbought": 70,
-  "atr_low_pct": 0.3,
+  "atr_low_pct": 0.05,    
   "atr_high_pct": 3.0,
   "tp_multiplier": 2.6,
   "sl_multiplier": 1.1,
