@@ -422,28 +422,54 @@ export async function notifyError(errorMessage) {
 }
 
 /**
- * Get status message
+ * Get status message with balance information
  * @returns {Promise<string>} Status message
  */
 async function getStatusMessage() {
   const openTrades = await db.getOpenTrades();
   const todayPnL = await db.getTodayPnL();
   const todayTradesCount = await db.getTodayClosedTradesCount();
+  
+  // Get CAD balance from exchange
+  let cadBalance = { free: 0, used: 0, total: 0 };
+  let balanceError = false;
+  try {
+    const exchangeModule = await import('./exchange.js');
+    cadBalance = await exchangeModule.getBalance('CAD');
+  } catch (error) {
+    balanceError = true;
+  }
 
-  let message = `*Bot Status*\n\n`;
-  message += `Today's PnL: ${formatNumber(todayPnL, 2)} CAD\n`;
-  message += `Today's Trades: ${todayTradesCount}\n\n`;
-
-  if (openTrades.length === 0) {
-    message += `No open positions`;
+  let message = `🤖 *Bot Status*\n\n`;
+  
+  // CAD Balance section
+  message += `💰 *CAD Balance*\n`;
+  if (balanceError) {
+    message += `⚠️ Unable to fetch balance\n\n`;
   } else {
-    message += `*Open Positions: ${openTrades.length}*\n\n`;
+    message += `Available: ${formatNumber(cadBalance.free, 2)} CAD\n`;
+    message += `In Orders: ${formatNumber(cadBalance.used, 2)} CAD\n`;
+    message += `Total: ${formatNumber(cadBalance.total, 2)} CAD\n\n`;
+  }
+  
+  // Today's performance
+  message += `📊 *Today's Performance*\n`;
+  message += `PnL: ${formatNumber(todayPnL, 2)} CAD\n`;
+  message += `Trades: ${todayTradesCount}\n\n`;
+
+  // Open positions
+  if (openTrades.length === 0) {
+    message += `✅ *No Open Positions*`;
+  } else {
+    message += `📈 *Open Positions: ${openTrades.length}*\n\n`;
     for (const trade of openTrades) {
+      const currentValue = trade.qty * trade.entry_price;
       message += `${trade.symbol}\n`;
       message += `  Entry: ${formatNumber(trade.entry_price, 2)} CAD\n`;
       message += `  Qty: ${formatNumber(trade.qty, 6)}\n`;
-      message += `  SL: ${formatNumber(trade.stop_loss, 2)}\n`;
-      message += `  TP: ${formatNumber(trade.take_profit, 2)}\n`;
+      message += `  Value: ${formatNumber(currentValue, 2)} CAD\n`;
+      message += `  SL: ${formatNumber(trade.stop_loss, 2)} CAD\n`;
+      message += `  TP: ${formatNumber(trade.take_profit, 2)} CAD\n`;
       message += `  Opened: ${formatTime(trade.opened_at)}\n\n`;
     }
   }
@@ -452,7 +478,7 @@ async function getStatusMessage() {
 }
 
 /**
- * Get daily summary message
+ * Get daily summary message with detailed stats
  * @returns {Promise<string>} Daily summary message
  */
 async function getDailySummaryMessage() {
@@ -460,49 +486,81 @@ async function getDailySummaryMessage() {
   const summary = await db.getDailySummary(today);
 
   if (!summary || summary.trades === 0) {
-    return `No trades today (${today})`;
+    return `📅 *${today}*\n\n✅ Henüz trade yok`;
   }
 
   const winRate = (parseFloat(summary.win_rate) * 100).toFixed(1);
   const profitFactor = parseFloat(summary.profit_factor).toFixed(2);
+  const netPnl = parseFloat(summary.net_pnl);
+  const emoji = netPnl >= 0 ? '💚' : '❤️';
 
-  let message = `📅 *${today}*\n\n`;
-  message += `Trades: ${summary.trades}\n`;
-  message += `Wins: ${summary.wins} | Losses: ${summary.losses}\n`;
+  let message = `📅 *Günlük Rapor: ${today}*\n\n`;
+  
+  // Trade summary
+  message += `📊 *İşlem Özeti*\n`;
+  message += `Toplam: ${summary.trades} trade\n`;
+  message += `✅ Kazanan: ${summary.wins}\n`;
+  message += `❌ Kaybeden: ${summary.losses}\n`;
   message += `Win Rate: ${winRate}%\n`;
   message += `Profit Factor: ${profitFactor}\n\n`;
-  message += `Net PnL: ${formatNumber(summary.net_pnl, 2)} CAD\n`;
-  message += `Gross Profit: ${formatNumber(summary.gross_profit, 2)} CAD\n`;
-  message += `Gross Loss: ${formatNumber(summary.gross_loss, 2)} CAD\n\n`;
-  message += `Avg Win: ${formatNumber(summary.avg_win, 2)} CAD\n`;
-  message += `Avg Loss: ${formatNumber(summary.avg_loss, 2)} CAD\n`;
+  
+  // PnL details
+  message += `${emoji} *Kar/Zarar Detayı*\n`;
+  message += `Net PnL: ${formatNumber(netPnl, 2)} CAD\n`;
+  message += `Brüt Kar: ${formatNumber(summary.gross_profit, 2)} CAD\n`;
+  message += `Brüt Zarar: ${formatNumber(summary.gross_loss, 2)} CAD\n\n`;
+  
+  // Averages
+  message += `📈 *Ortalamalar*\n`;
+  message += `Ortalama Kazanç: ${formatNumber(summary.avg_win, 2)} CAD\n`;
+  message += `Ortalama Kayıp: ${formatNumber(summary.avg_loss, 2)} CAD\n`;
   message += `Max Drawdown: ${formatNumber(summary.max_drawdown, 2)} CAD`;
 
   return message;
 }
 
 /**
- * Get AI status message
+ * Get AI status message with complete parameters
  * @returns {Promise<string>} AI status message
  */
 async function getAIStatusMessage() {
   const aiStatus = await ai.getAIStatus();
   const weights = aiStatus.current;
+  
+  // Load runtime config for multipliers
+  let runtimeConfig;
+  try {
+    runtimeConfig = await ai.loadRuntimeConfig();
+  } catch (error) {
+    runtimeConfig = { tp_multiplier: 2.4, sl_multiplier: 1.2 };
+  }
 
-  let message = `🤖 *AI Status*\n\n`;
-  message += `*Current Weights:*\n`;
+  let message = `🧠 *AI Status & Parameters*\n\n`;
+  
+  // AI Weights
+  message += `⚖️ *Signal Ağırlıkları*\n`;
   message += `RSI: ${formatNumber(weights.w_rsi, 3)} (${(weights.w_rsi * 100).toFixed(0)}%)\n`;
   message += `EMA: ${formatNumber(weights.w_ema, 3)} (${(weights.w_ema * 100).toFixed(0)}%)\n`;
   message += `ATR: ${formatNumber(weights.w_atr, 3)} (${(weights.w_atr * 100).toFixed(0)}%)\n`;
   message += `VOL: ${formatNumber(weights.w_vol, 3)} (${(weights.w_vol * 100).toFixed(0)}%)\n\n`;
 
-  message += `*Strategy Parameters:*\n`;
+  // Strategy Parameters
+  message += `📊 *Strateji Parametreleri*\n`;
   message += `RSI Oversold: ${weights.rsi_oversold}\n`;
   message += `RSI Overbought: ${weights.rsi_overbought}\n`;
-  message += `ATR Range: ${weights.atr_low_pct} - ${weights.atr_high_pct}%\n\n`;
+  message += `ATR Aralığı: ${weights.atr_low_pct}% - ${weights.atr_high_pct}%\n\n`;
+  
+  // Risk Parameters
+  message += `🎯 *Risk Yönetimi*\n`;
+  message += `Stop Loss: ${runtimeConfig.sl_multiplier}× ATR\n`;
+  message += `Take Profit: ${runtimeConfig.tp_multiplier}× ATR\n`;
+  message += `Risk/Reward: 1:${(runtimeConfig.tp_multiplier / runtimeConfig.sl_multiplier).toFixed(2)}\n\n`;
 
+  // Last update
   if (aiStatus.history.length > 0) {
-    message += `Last updated: ${formatTime(aiStatus.history[0].timestamp)}`;
+    message += `🕐 Son Güncelleme: ${formatTime(aiStatus.history[0].timestamp)}`;
+  } else {
+    message += `🕐 Son Güncelleme: -`;
   }
 
   return message;
