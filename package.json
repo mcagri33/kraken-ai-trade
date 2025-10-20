@@ -1,0 +1,38 @@
+{
+  "name": "kraken-ai-trader",
+  "version": "1.0.0",
+  "description": "Fully automated AI-learning Kraken CAD spot trading bot",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "pm2:start": "pm2 start src/index.js --name kraken-ai-trader --time",
+    "pm2:stop": "pm2 stop kraken-ai-trader",
+    "pm2:restart": "pm2 restart kraken-ai-trader",
+    "pm2:logs": "pm2 logs kraken-ai-trader"
+  },
+  "keywords": [
+    "trading",
+    "bot",
+    "kraken",
+    "ai",
+    "cryptocurrency",
+    "automated-trading"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ccxt": "^4.2.0",
+    "dotenv": "^16.4.5",
+    "mysql2": "^3.9.2",
+    "node-telegram-bot-api": "^0.65.1"
+  },
+  "devDependencies": {
+    "pm2": "^5.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
