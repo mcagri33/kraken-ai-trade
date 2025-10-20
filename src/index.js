@@ -19,6 +19,8 @@ let botState = {
   currentParams: null,
   runtimeConfig: null,
   lastOptimizationTime: null,
+  lastMarketSummaryTime: null,
+  recentSignals: [], // Son 10 sinyali sakla
   openPositions: new Map(), // symbol -> position
   tradingEnabled: true,
   lastTradeTime: null,
@@ -93,6 +95,7 @@ async function initialize() {
     
     botState.tradingEnabled = config.ENABLE_TRADING && !botState.dryRun;
     botState.lastOptimizationTime = Date.now();
+    botState.lastMarketSummaryTime = Date.now();
     
     // Initialize daily stats
     await initializeDailyStats();
@@ -247,6 +250,9 @@ async function mainLoop() {
       // Check if we need to run AI optimization
       await checkAndRunOptimization();
       
+      // Check if we need to send market summary (every 10 minutes)
+      await checkAndSendMarketSummary();
+      
       // Single position rule: check if we have any crypto holdings
       const hasPosition = await exchange.hasOpenPosition(1.0);
       
@@ -349,6 +355,25 @@ async function lookForEntry() {
         botState.currentParams,
         botState.currentWeights
       );
+      
+      // Sinyali kaydet (son 10 tanesini tut)
+      if (signal) {
+        botState.recentSignals.push({
+          symbol,
+          action: signal.action,
+          rsi: signal.indicators.rsi,
+          confidence: signal.confidence,
+          timestamp: new Date()
+        });
+        
+        // Son 10 sinyali tut
+        if (botState.recentSignals.length > 10) {
+          botState.recentSignals.shift();
+        }
+        
+        // Extreme RSI durumlarında özel bildirim
+        await notifyExtremeRSI(symbol, signal);
+      }
       
       if (signal && signal.action === 'BUY') {
         if (!bestSignal || signal.confidence > bestSignal.confidence) {
@@ -551,6 +576,80 @@ async function handleEmergencyFlat() {
   }
   
   await telegram.sendMessage('✅ Emergency flat completed');
+}
+
+/**
+ * Notify extreme RSI conditions (once per 10 min per symbol)
+ */
+const lastExtremeNotify = new Map(); // symbol -> timestamp
+
+async function notifyExtremeRSI(symbol, signal) {
+  const rsi = signal.indicators.rsi;
+  
+  // Extreme oversold (RSI < 20) veya extreme overbought (RSI > 80)
+  if (rsi < 20 || rsi > 80) {
+    const lastNotify = lastExtremeNotify.get(symbol);
+    const now = Date.now();
+    
+    // Aynı sembol için 10 dakikada bir bildir
+    if (!lastNotify || (now - lastNotify) > 600000) {
+      const emoji = rsi < 20 ? '🔥' : '⚠️';
+      const condition = rsi < 20 ? 'EXTREME OVERSOLD' : 'EXTREME OVERBOUGHT';
+      
+      await telegram.sendMessage(
+        `${emoji} *${condition}*\n\n` +
+        `Symbol: ${symbol}\n` +
+        `RSI: ${rsi.toFixed(1)}\n` +
+        `Action: ${signal.action || 'NONE'}\n` +
+        `Confidence: ${(signal.confidence * 100).toFixed(1)}%`,
+        { parse_mode: 'Markdown' }
+      );
+      
+      lastExtremeNotify.set(symbol, now);
+    }
+  }
+}
+
+/**
+ * Check and send market summary (every 10 minutes)
+ */
+async function checkAndSendMarketSummary() {
+  const now = Date.now();
+  const timeSinceLastSummary = (now - botState.lastMarketSummaryTime) / 1000 / 60; // minutes
+  
+  if (timeSinceLastSummary >= 10) {
+    try {
+      await sendMarketSummary();
+      botState.lastMarketSummaryTime = now;
+    } catch (error) {
+      log(`Error sending market summary: ${error.message}`, 'ERROR');
+    }
+  }
+}
+
+/**
+ * Send market summary to Telegram
+ */
+async function sendMarketSummary() {
+  if (botState.recentSignals.length === 0) return;
+  
+  // Son 5 sinyali al
+  const recent5 = botState.recentSignals.slice(-5);
+  
+  let message = `📊 *Market Summary*\n\n`;
+  
+  for (const sig of recent5) {
+    const emoji = sig.action === 'BUY' ? '🟢' : sig.rsi > 70 ? '🔴' : '⚪';
+    const rsiColor = sig.rsi < 30 ? '🔥' : sig.rsi > 70 ? '⚠️' : '';
+    message += `${emoji} ${sig.symbol}\n`;
+    message += `  RSI: ${sig.rsi.toFixed(1)} ${rsiColor}\n`;
+    message += `  Action: ${sig.action || 'NONE'}\n`;
+    message += `  Conf: ${(sig.confidence * 100).toFixed(0)}%\n\n`;
+  }
+  
+  message += `_Son 5 sinyal (10dk rapor)_`;
+  
+  await telegram.sendMessage(message, { parse_mode: 'Markdown' });
 }
 
 /**
