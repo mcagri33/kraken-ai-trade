@@ -13,8 +13,8 @@ logs/
 .pm2/
 
 # AI weights and runtime config
-ai-weights.json
-runtime-config.json
+
+
 
 # OS
 .DS_Store

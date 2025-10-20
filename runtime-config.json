@@ -1,0 +1,10 @@
+{
+  "rsi_oversold": 42,
+  "rsi_overbought": 62,
+  "atr_low_pct": 0.3,
+  "atr_high_pct": 2.0,
+  "tp_multiplier": 2.6,        
+  "sl_multiplier": 1.1,        
+  "last_optimized": null,
+  "optimization_history": []
+}
