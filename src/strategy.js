@@ -56,6 +56,10 @@ export function analyzeMarket(ohlcv, params, weights) {
   const atr = calculateATR(ohlcvForSignal, 14);
   const volZScore = calculateZScore(volumesForSignal, 20);
 
+  // Debug: Always log indicator values
+  log(`    📊 Indicators: RSI=${rsi?.toFixed(1)}, EMA20=${ema20?.toFixed(2)}, EMA50=${ema50?.toFixed(2)}, ` +
+      `ATR=${atrPct?.toFixed(2)}%, VolZ=${volZScore?.toFixed(2)}`, 'DEBUG');
+
   if (ema20 === null || ema50 === null || ema200 === null || 
       rsi === null || atrPct === null || volZScore === null || atr === null) {
     log('Indicator calculation returned null', 'WARN');
@@ -131,6 +135,11 @@ export function analyzeMarket(ohlcv, params, weights) {
     action: null
   };
 
+  // Debug: Always log conditions and confidence
+  log(`    🔍 Conditions: regime=${inBullishRegime ? '✅' : '❌'}, trend=${trendIsBullish ? '✅' : '❌'}, ` +
+      `oversold=${isOversold ? '✅' : '❌'}, overbought=${isOverbought ? '✅' : '❌'}, ` +
+      `vol=${volumeStrong ? '✅' : '❌'}, atr=${volatilityOK ? '✅' : '❌'}, conf=${confidence.toFixed(3)}`, 'DEBUG');
+
   // Determine action
   // BUY signal: bullish regime + trend + oversold + volatility OK + volume strong + confidence >= threshold
   
@@ -167,6 +176,9 @@ export function analyzeMarket(ohlcv, params, weights) {
       log(`SELL signal: ${reason}, RSI=${rsi.toFixed(1)}`, 'INFO');
     }
   }
+
+  // Debug: Final action
+  log(`    ➡️  Final action: ${signal.action || 'NONE'}`, 'DEBUG');
 
   return signal;
 }
