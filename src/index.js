@@ -241,7 +241,11 @@ async function mainLoop() {
       }
       
       // Check daily limits
-      if (!checkDailyLimits()) {
+      const limitsOk = checkDailyLimits();
+      log(`📊 Daily stats: ${botState.dailyStats.tradesCount}/${botState.currentParams.MAX_DAILY_TRADES} trades, ` +
+          `PnL: ${botState.dailyStats.realizedPnL.toFixed(2)}/${-botState.currentParams.MAX_DAILY_LOSS_CAD} CAD`, 'DEBUG');
+      
+      if (!limitsOk) {
         log('Daily limits reached, waiting...', 'WARN');
         await sleep(botState.currentParams.LOOP_INTERVAL_MS);
         continue;
@@ -255,12 +259,15 @@ async function mainLoop() {
       
       // Single position rule: check if we have any crypto holdings
       const hasPosition = await exchange.hasOpenPosition(1.0);
+      log(`🔍 Position check: ${hasPosition ? 'HAS POSITION' : 'NO POSITION'}`, 'DEBUG');
       
       if (hasPosition) {
         // We have a position - check exit conditions and trailing
+        log('📊 Managing open positions...', 'DEBUG');
         await manageOpenPositions();
       } else {
         // No position - look for entry
+        log('🔎 Looking for entry signal...', 'DEBUG');
         await lookForEntry();
       }
       
@@ -340,9 +347,12 @@ async function lookForEntry() {
   let bestSignal = null;
   let bestSymbol = null;
   
+  log(`📡 Scanning ${botState.currentParams.TRADING_SYMBOLS.length} symbols...`, 'DEBUG');
+  
   // Scan all symbols for best confidence
   for (const symbol of botState.currentParams.TRADING_SYMBOLS) {
     try {
+      log(`  🔎 Analyzing ${symbol}...`, 'DEBUG');
       const ohlcv = await exchange.fetchOHLCV(symbol, botState.currentParams.TIMEFRAME, 220);
       
       if (!ohlcv || ohlcv.length < 220) {
@@ -350,6 +360,7 @@ async function lookForEntry() {
         continue;
       }
       
+      log(`  📊 ${symbol}: Got ${ohlcv.length} candles, analyzing...`, 'DEBUG');
       const signal = strategy.analyzeMarket(
         ohlcv,
         botState.currentParams,
