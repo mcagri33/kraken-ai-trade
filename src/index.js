@@ -600,7 +600,32 @@ async function closePosition(symbol, exitPrice, reason) {
     }
     
     // Execute market sell
-    const sellOrder = await exchange.marketSell(symbol, position.qty);
+    let sellOrder;
+    try {
+      sellOrder = await exchange.marketSell(symbol, position.qty);
+    } catch (sellError) {
+      // Check if it's a minimum amount error
+      if (sellError.message.includes('below minimum')) {
+        log(`⚠️  Position too small to sell (below exchange minimum)`, 'WARN');
+        await telegram.notifyError(
+          `⚠️ Cannot close ${symbol} position: ${position.qty} is below exchange minimum.\n` +
+          `This is orphaned dust. Manual cleanup may be needed.`
+        );
+        // Mark as closed in DB with special reason
+        await db.updateTradeExit(position.id, {
+          exit_price: exitPrice,
+          exit_fee: 0,
+          pnl: 0,
+          pnl_pct: 0,
+          closed_at: new Date(),
+          exit_reason: 'DUST_ORPHANED',
+          candles_held: strategy.calculateCandlesElapsed(position.opened_at, 1)
+        });
+        botState.openPositions.delete(symbol);
+        return;
+      }
+      throw sellError; // Re-throw if different error
+    }
     
     const actualExitPrice = sellOrder.average || exitPrice;
     const exitFee = sellOrder.extractedFee?.cost || 0;

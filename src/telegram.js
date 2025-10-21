@@ -383,6 +383,7 @@ ATR: ${formatNumber(trade.atr_pct, 2)}%
 export async function notifyTradeClose(trade) {
   const isProfit = trade.pnl > 0;
   const emoji = isProfit ? '✅' : '❌';
+  const pnlSign = trade.pnl >= 0 ? '+' : '';
   const message = `
 ${emoji} *Position Closed*
 
@@ -390,13 +391,14 @@ Symbol: ${trade.symbol}
 Entry: ${formatNumber(trade.entry_price, 2)} CAD
 Exit: ${formatNumber(trade.exit_price, 2)} CAD
 
-PnL: ${formatNumber(trade.pnl, 2)} CAD (${formatNumber(trade.pnl_pct, 2)}%)
+PnL: ${pnlSign}${formatNumber(trade.pnl, 2)} CAD (${pnlSign}${formatNumber(trade.pnl_pct, 2)}%)
 Reason: ${trade.exit_reason || 'MANUAL'}
 
 Duration: ${calculateDuration(trade.opened_at, trade.closed_at)}
   `.trim();
 
-  await sendMessage(message, { parse_mode: 'Markdown' });
+  // Send without parse_mode to avoid Markdown errors
+  await sendMessage(message);
 }
 
 /**

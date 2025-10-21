@@ -180,16 +180,23 @@ export async function marketSell(symbol, amount) {
     // Round to step size
     let roundedAmount = amount;
     if (market.limits && market.limits.amount && market.limits.amount.min) {
-      const stepSize = market.precision?.amount || 8;
+      // precision.amount can be scientific notation (1e-8) or decimal places (8)
+      let stepSize = market.precision?.amount || 8;
+      
+      // Convert scientific notation to decimal places: 1e-8 -> 8
+      if (typeof stepSize === 'number' && stepSize < 1) {
+        stepSize = Math.abs(Math.round(Math.log10(stepSize)));
+      }
+      
       log(`   Step size: ${stepSize}, Min amount: ${market.limits.amount.min}`, 'DEBUG');
       
-      // More precise rounding using toFixed instead of Math.floor
+      // More precise rounding using toFixed
       roundedAmount = parseFloat(amount.toFixed(stepSize));
       
-      // Check if rounded amount is below minimum
+      // Check if rounded amount is below minimum - DON'T auto-adjust, throw error instead
       if (roundedAmount < market.limits.amount.min) {
-        log(`⚠️  Rounded amount ${roundedAmount} is below minimum ${market.limits.amount.min}`, 'WARN');
-        roundedAmount = market.limits.amount.min;
+        log(`❌ Amount ${amount} (rounded: ${roundedAmount}) is below minimum ${market.limits.amount.min}`, 'ERROR');
+        throw new Error(`Order amount ${amount} is below minimum ${market.limits.amount.min} for ${symbol}`);
       }
     }
     
@@ -521,6 +528,17 @@ export async function marketBuyCost(symbol, cadAmount) {
   try {
     log(`Market BUY: ${symbol} with ${cadAmount.toFixed(2)} CAD`, 'INFO');
     
+    // Check if purchase amount will result in minimum qty
+    const market = await getMarketInfo(symbol);
+    const ticker = await fetchTicker(symbol);
+    const estimatedQty = cadAmount / ticker.last;
+    
+    if (market.limits?.amount?.min && estimatedQty < market.limits.amount.min) {
+      const minCost = market.limits.amount.min * ticker.last;
+      log(`❌ Purchase amount ${cadAmount} CAD would result in ${estimatedQty.toFixed(8)} ${symbol.split('/')[0]}, below minimum ${market.limits.amount.min}`, 'ERROR');
+      throw new Error(`Minimum purchase is ${minCost.toFixed(2)} CAD to meet exchange minimum qty of ${market.limits.amount.min}`);
+    }
+    
     // Try cost-based buy first (Kraken supports this)
     let order;
     try {
@@ -532,8 +550,6 @@ export async function marketBuyCost(symbol, cadAmount) {
     } catch (costError) {
       // Fallback: calculate qty from ticker
       log(`Cost parameter not supported, using fallback`, 'WARN');
-      const ticker = await fetchTicker(symbol);
-      const estimatedQty = cadAmount / ticker.last;
       
       order = await retryExchangeCall(async () => {
         return await exchange.createMarketBuyOrder(symbol, estimatedQty);
