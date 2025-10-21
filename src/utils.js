@@ -29,7 +29,10 @@ export function clamp(value, min, max) {
  * @returns {string}
  */
 export function formatNumber(num, decimals = 2) {
-  return num.toFixed(decimals);
+  if (num === null || num === undefined || isNaN(num)) {
+    return '0.00';
+  }
+  return parseFloat(num).toFixed(decimals);
 }
 
 /**

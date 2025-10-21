@@ -465,6 +465,13 @@ async function handleBuySignal(symbol, signal) {
     const actualPrice = order.average || signal.price;
     const entryFee = order.extractedFee?.cost || 0;
     
+    // Validate order execution
+    if (!actualQty || actualQty === 0 || !actualPrice) {
+      log(`Order execution failed: qty=${actualQty}, price=${actualPrice}`, 'ERROR');
+      await telegram.notifyError(`Order failed for ${symbol}: Invalid qty or price`);
+      return;
+    }
+    
     // Create position
     const position = {
       symbol,
