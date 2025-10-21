@@ -160,9 +160,12 @@ export function analyzeMarket(ohlcv, params, weights) {
   }
   
   if (inBullishRegime && isOversold && volatilityOK && volumeStrong) {
-    if (confidence >= params.CONFIDENCE_THRESHOLD) {
+    log(`    🎯 BUY Check: confidence=${confidence.toFixed(3)} vs threshold=${params.CONFIDENCE_THRESHOLD || 0.65}`, 'DEBUG');
+    if (confidence >= (params.CONFIDENCE_THRESHOLD || 0.65)) {
       signal.action = 'BUY';
       log(`BUY signal generated: confidence=${confidence.toFixed(3)}, RSI=${rsi.toFixed(1)}`, 'SUCCESS');
+    } else {
+      log(`    ❌ Confidence too low: ${confidence.toFixed(3)} < ${params.CONFIDENCE_THRESHOLD || 0.65}`, 'DEBUG');
     }
   }
   
