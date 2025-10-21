@@ -141,8 +141,16 @@ export async function getBalance(currency = 'CAD') {
  */
 export async function marketBuy(symbol, amount) {
   try {
+    // Validate amount parameter
+    if (!amount || amount <= 0 || isNaN(amount)) {
+      log(`❌ Invalid amount parameter: ${amount}`, 'ERROR');
+      throw new Error(`Invalid buy amount: ${amount}`);
+    }
+    
+    log(`📥 Attempting to buy: ${amount} ${symbol}`, 'DEBUG');
+    
     const order = await exchange.createMarketBuyOrder(symbol, amount);
-    log(`Market BUY: ${symbol} ${amount} @ ~${order.price || 'market'}`, 'SUCCESS');
+    log(`Market BUY executed: ${symbol} ${order.filled || amount} @ ~${order.price || 'market'}`, 'SUCCESS');
     return order;
   } catch (error) {
     log(`Error placing buy order for ${symbol}: ${error.message}`, 'ERROR');
@@ -158,6 +166,14 @@ export async function marketBuy(symbol, amount) {
  */
 export async function marketSell(symbol, amount) {
   try {
+    // Validate amount parameter
+    if (!amount || amount <= 0 || isNaN(amount)) {
+      log(`❌ Invalid amount parameter: ${amount}`, 'ERROR');
+      throw new Error(`Invalid sell amount: ${amount}`);
+    }
+    
+    log(`📤 Attempting to sell: ${amount} ${symbol}`, 'DEBUG');
+    
     // Get market info for rounding
     const market = await getMarketInfo(symbol);
     
@@ -165,10 +181,19 @@ export async function marketSell(symbol, amount) {
     let roundedAmount = amount;
     if (market.limits && market.limits.amount && market.limits.amount.min) {
       const stepSize = market.precision?.amount || 8;
-      roundedAmount = Math.floor(amount * Math.pow(10, stepSize)) / Math.pow(10, stepSize);
+      log(`   Step size: ${stepSize}, Min amount: ${market.limits.amount.min}`, 'DEBUG');
+      
+      // More precise rounding using toFixed instead of Math.floor
+      roundedAmount = parseFloat(amount.toFixed(stepSize));
+      
+      // Check if rounded amount is below minimum
+      if (roundedAmount < market.limits.amount.min) {
+        log(`⚠️  Rounded amount ${roundedAmount} is below minimum ${market.limits.amount.min}`, 'WARN');
+        roundedAmount = market.limits.amount.min;
+      }
     }
     
-    log(`Market SELL: ${symbol} ${roundedAmount}`, 'INFO');
+    log(`Market SELL: ${symbol} ${roundedAmount} (original: ${amount})`, 'INFO');
     
     const order = await retryExchangeCall(async () => {
       return await exchange.createMarketSellOrder(symbol, roundedAmount);
