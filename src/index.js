@@ -100,6 +100,9 @@ async function initialize() {
     // Initialize daily stats
     await initializeDailyStats();
     
+    // Restore open positions from database
+    await restoreOpenPositions();
+    
     log('✅ Initialization complete', 'SUCCESS');
     log(`Trading enabled: ${botState.tradingEnabled}`, 'INFO');
     log(`Symbols: ${botState.currentParams.TRADING_SYMBOLS.join(', ')}`, 'INFO');
@@ -195,6 +198,45 @@ async function initializeDailyStats() {
     tradesCount: todayCount,
     realizedPnL: todayPnL
   };
+}
+
+/**
+ * Restore open positions from database on startup
+ */
+async function restoreOpenPositions() {
+  try {
+    const openTrades = await db.getOpenTrades();
+    
+    if (openTrades.length === 0) {
+      log('No open positions to restore', 'INFO');
+      return;
+    }
+    
+    // Restore each open trade to botState
+    for (const trade of openTrades) {
+      const position = {
+        id: trade.id,
+        symbol: trade.symbol,
+        side: trade.side,
+        qty: parseFloat(trade.qty),
+        entry_price: parseFloat(trade.entry_price),
+        stop_loss: parseFloat(trade.stop_loss),
+        take_profit: parseFloat(trade.take_profit),
+        ai_confidence: parseFloat(trade.ai_confidence),
+        atr_pct: parseFloat(trade.atr_pct),
+        entry_fee: parseFloat(trade.entry_fee || 0),
+        opened_at: new Date(trade.opened_at)
+      };
+      
+      botState.openPositions.set(trade.symbol, position);
+      log(`✅ Restored position: ${trade.symbol} - ${position.qty} @ ${position.entry_price}`, 'INFO');
+    }
+    
+    log(`📊 Total ${openTrades.length} position(s) restored`, 'SUCCESS');
+    
+  } catch (error) {
+    log(`Error restoring positions: ${error.message}`, 'ERROR');
+  }
 }
 
 /**
@@ -310,6 +352,19 @@ function checkDailyLimits() {
  * Manage open positions (exit checks + trailing)
  */
 async function manageOpenPositions() {
+  // Safety check: if Map is empty but we have crypto, reload from DB
+  if (botState.openPositions.size === 0) {
+    log('⚠️  Position map empty but crypto detected, reloading from database...', 'WARN');
+    await restoreOpenPositions();
+    
+    // If still empty after reload, something is wrong
+    if (botState.openPositions.size === 0) {
+      log('⚠️  No positions in database but crypto in wallet - possible orphaned balance', 'WARN');
+      await telegram.notifyError('Orphaned crypto detected in wallet without database record');
+      return;
+    }
+  }
+  
   for (const [symbol, position] of botState.openPositions) {
     try {
       const ticker = await exchange.fetchTicker(symbol);
