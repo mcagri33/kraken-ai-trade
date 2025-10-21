@@ -426,7 +426,8 @@ async function handleBuySignal(symbol, signal) {
         hasOpenPosition: botState.openPositions.size > 0,
         lastTradeTime: botState.lastTradeTime,
         lastTradePnL: botState.lastTradePnL
-      }
+      },
+      botState.currentParams
     );
     
     if (!validation.allowed) {
