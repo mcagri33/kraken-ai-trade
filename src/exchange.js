@@ -515,6 +515,27 @@ export async function marketBuyCost(symbol, cadAmount) {
       });
     }
     
+    // Debug: Log full order response
+    log(`Order response debug: filled=${order.filled}, amount=${order.amount}, cost=${order.cost}, ` +
+        `info.vol=${order.info?.vol}, info.cost=${order.info?.cost}`, 'DEBUG');
+    
+    // Extract quantity from various possible fields
+    const actualQty = order.filled || order.amount || parseFloat(order.info?.vol) || 0;
+    const actualPrice = order.average || order.price || parseFloat(order.info?.price) || 0;
+    const actualCost = order.cost || parseFloat(order.info?.cost) || 0;
+    
+    // Override order fields with extracted values
+    if (!order.filled && actualQty > 0) {
+      order.filled = actualQty;
+      log(`Order.filled was missing, extracted: ${actualQty}`, 'WARN');
+    }
+    if (!order.average && actualPrice > 0) {
+      order.average = actualPrice;
+    }
+    if (!order.cost && actualCost > 0) {
+      order.cost = actualCost;
+    }
+    
     // Extract fee information
     const fee = extractFee(order);
     order.extractedFee = fee;
