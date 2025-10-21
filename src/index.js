@@ -214,22 +214,30 @@ async function restoreOpenPositions() {
     
     // Restore each open trade to botState
     for (const trade of openTrades) {
+      // Parse qty with multiple fallbacks
+      let qty = parseFloat(trade.qty);
+      if (!qty || isNaN(qty) || qty === 0) {
+        log(`⚠️  Invalid qty in DB for ${trade.symbol}: ${trade.qty}, skipping position`, 'ERROR');
+        continue;
+      }
+      
       const position = {
         id: trade.id,
         symbol: trade.symbol,
         side: trade.side,
-        qty: parseFloat(trade.qty),
+        qty: qty,
         entry_price: parseFloat(trade.entry_price),
         stop_loss: parseFloat(trade.stop_loss),
         take_profit: parseFloat(trade.take_profit),
-        ai_confidence: parseFloat(trade.ai_confidence),
-        atr_pct: parseFloat(trade.atr_pct),
+        ai_confidence: parseFloat(trade.ai_confidence || 0),
+        atr_pct: parseFloat(trade.atr_pct || 0),
         entry_fee: parseFloat(trade.entry_fee || 0),
         opened_at: new Date(trade.opened_at)
       };
       
       botState.openPositions.set(trade.symbol, position);
-      log(`✅ Restored position: ${trade.symbol} - ${position.qty} @ ${position.entry_price}`, 'INFO');
+      log(`✅ Restored position: ${trade.symbol} - ${position.qty} BTC @ ${position.entry_price} CAD`, 'INFO');
+      log(`   SL: ${position.stop_loss}, TP: ${position.take_profit}`, 'DEBUG');
     }
     
     log(`📊 Total ${openTrades.length} position(s) restored`, 'SUCCESS');
@@ -370,6 +378,9 @@ async function manageOpenPositions() {
       const ticker = await exchange.fetchTicker(symbol);
       const currentPrice = ticker.last;
       
+      // Log position details for debugging
+      log(`📊 Managing ${symbol}: qty=${position.qty}, entry=${position.entry_price}, current=${currentPrice}`, 'DEBUG');
+      
       // Calculate candles elapsed
       const candlesElapsed = strategy.calculateCandlesElapsed(position.opened_at, 1);
       
@@ -377,6 +388,7 @@ async function manageOpenPositions() {
       const exitCheck = strategy.checkExitConditions(position, currentPrice, candlesElapsed);
       
       if (exitCheck.hit) {
+        log(`🎯 Exit triggered: ${exitCheck.reason} at ${exitCheck.exitPrice}`, 'INFO');
         await closePosition(symbol, exitCheck.exitPrice, exitCheck.reason);
         continue;
       }
@@ -388,7 +400,7 @@ async function manageOpenPositions() {
       if (newSL !== null) {
         position.stop_loss = newSL;
         botState.openPositions.set(symbol, position);
-        log(`Trailing SL updated for ${symbol}: ${newSL.toFixed(2)}`, 'INFO');
+        log(`📈 Trailing SL updated for ${symbol}: ${newSL.toFixed(2)} (R:R ${rr.toFixed(2)})`, 'INFO');
       }
       
     } catch (error) {
@@ -570,7 +582,16 @@ async function closePosition(symbol, exitPrice, reason) {
       return;
     }
     
+    // Validate qty before closing
+    if (!position.qty || position.qty <= 0 || isNaN(position.qty)) {
+      log(`❌ Invalid position qty: ${position.qty}, cannot close position`, 'ERROR');
+      await telegram.notifyError(`Invalid qty for ${symbol}: ${position.qty}. Position data corrupted, removing from memory.`);
+      botState.openPositions.delete(symbol);
+      return;
+    }
+    
     log(`📤 Closing position: ${symbol} @ ${exitPrice} (${reason})`, 'INFO');
+    log(`   Selling: ${position.qty} BTC`, 'DEBUG');
     
     if (botState.dryRun) {
       log(`[DRY-RUN] Would SELL ${position.qty} ${symbol} @ ${exitPrice}`, 'INFO');
