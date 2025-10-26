@@ -42,11 +42,12 @@ global.botState = botState;
  */
 async function autoSyncOrphanedPositions(exchange, dbClient) {
   try {
-    const balances = await exchange.fetchBalance();
+    // Doğru exchange metodlarını kullan
+    const balances = await exchange.getAllBaseBalances();
     const dbPositions = await dbClient.query('SELECT symbol FROM trades WHERE status = $1', ['OPEN']);
     const dbSymbols = dbPositions.rows.map(r => r.symbol);
 
-    for (const [asset, bal] of Object.entries(balances.total)) {
+    for (const [asset, bal] of Object.entries(balances)) {
       if (bal > 0 && asset !== 'CAD' && !dbSymbols.includes(`${asset}/CAD`)) {
         try {
           const ticker = await exchange.fetchTicker(`${asset}/CAD`);
