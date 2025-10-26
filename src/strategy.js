@@ -47,14 +47,15 @@ export function calculateIndicators(ohlcv) {
 
 /**
  * Analyze market data and generate trading signal
- * IMPORTANT: Signal is based on close[-2] (completed candle), 
+ * IMPORTANT: Signal is based on close[-2] (completed candle),
  * but execution uses close[-1] (current/last price)
  * @param {Array} ohlcv - OHLCV data
  * @param {Object} params - Strategy parameters
  * @param {Object} weights - AI weights
+ * @param {Object} botState - Bot state (for adaptive parameters)
  * @returns {Object|null} Signal object or null
  */
-export function analyzeMarket(ohlcv, params, weights) {
+export function analyzeMarket(ohlcv, params, weights, botState = null) {
   if (!ohlcv || ohlcv.length < params.EMA_REGIME + 1) {
     log('Insufficient data for analysis (need at least EMA_REGIME + 1 candles)', 'WARN');
     return null;
@@ -133,6 +134,10 @@ export function analyzeMarket(ohlcv, params, weights) {
     volScore * weights.w_vol
   );
 
+  // Use adaptive confidence threshold if available
+  const confidenceThreshold = botState?.strategy?.confidenceThreshold || params.CONFIDENCE_THRESHOLD || 0.65;
+  const atrLowThreshold = botState?.strategy?.atrLowPct || params.ATR_LOW_PCT || 0.01;
+
   const signal = {
     timestamp: new Date(),
     price: currentPrice, // Execution price (close[-1])
@@ -189,12 +194,12 @@ export function analyzeMarket(ohlcv, params, weights) {
   }
   
   if (inBullishRegime && isOversold && volatilityOK && volumeStrong) {
-    log(`    🎯 BUY Check: confidence=${confidence.toFixed(3)} vs threshold=${params.CONFIDENCE_THRESHOLD || 0.65}`, 'DEBUG');
-    if (confidence >= (params.CONFIDENCE_THRESHOLD || 0.65)) {
+    log(`    🎯 BUY Check: confidence=${confidence.toFixed(3)} vs threshold=${confidenceThreshold.toFixed(3)}`, 'DEBUG');
+    if (confidence >= confidenceThreshold) {
       signal.action = 'BUY';
       log(`BUY signal generated: confidence=${confidence.toFixed(3)}, RSI=${rsi.toFixed(1)}`, 'SUCCESS');
     } else {
-      log(`    ❌ Confidence too low: ${confidence.toFixed(3)} < ${params.CONFIDENCE_THRESHOLD || 0.65}`, 'DEBUG');
+      log(`    ❌ Confidence too low: ${confidence.toFixed(3)} < ${confidenceThreshold.toFixed(3)}`, 'DEBUG');
     }
   }
   

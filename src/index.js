@@ -35,10 +35,11 @@ let botState = {
 
 /**
  * === 🧠 Adaptive Scalper Mode ===
- * Bu sistem düşük volatilite dönemlerinde sinyal eşiğini gevşetir.
- * Yüksek volatilite dönemlerinde ise risk azaltır.
+ * Dinamik olarak ATR ve Confidence değerlerini piyasa volatilitesine göre ayarlar.
+ * @param {number} avgATR - Ortalama ATR değeri (% olarak)
+ * @param {object} botState - Botun mevcut durumu (state)
  */
-function adaptScalperParams(avgATR) {
+function adaptScalperParams(avgATR, botState) {
   const baseATR = 0.1; // referans volatilite
   const baseConf = 0.30;
   const baseATRLow = 0.01;
@@ -71,9 +72,10 @@ function adaptScalperParams(avgATR) {
   adaptiveConfidence = Math.max(0.2, Math.min(0.5, adaptiveConfidence));
   adaptiveATRLow = Math.max(0.001, Math.min(0.05, adaptiveATRLow));
 
-  // Bot state'i güncelle
-  botState.currentParams.CONFIDENCE_THRESHOLD = adaptiveConfidence;
-  botState.runtimeConfig.atr_low_pct = adaptiveATRLow;
+  // botState güncelle
+  botState.strategy = botState.strategy || {};
+  botState.strategy.confidenceThreshold = adaptiveConfidence;
+  botState.strategy.atrLowPct = adaptiveATRLow;
 
   log(`[ADAPTIVE] ATR=${avgATR.toFixed(3)} → Confidence=${adaptiveConfidence.toFixed(3)}, ATR_LOW_PCT=${adaptiveATRLow}`, 'INFO');
 }
@@ -482,13 +484,14 @@ async function lookForEntry() {
       // === 🧠 Adaptive Scalper Mode ===
       // ATR hesaplandıktan hemen sonra adaptive parametreleri güncelle
       if (indicators && indicators.ATR) {
-        adaptScalperParams(indicators.ATR);
+        adaptScalperParams(indicators.ATR, botState);
       }
       
       const signal = strategy.analyzeMarket(
         ohlcv,
         botState.currentParams,
-        botState.currentWeights
+        botState.currentWeights,
+        botState
       );
       
       // Sinyali kaydet (son 10 tanesini tut)
