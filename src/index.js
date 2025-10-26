@@ -44,7 +44,8 @@ async function autoSyncOrphanedPositions(exchange, dbClient) {
   try {
     // Doğru exchange metodlarını kullan
     const balances = await exchange.getAllBaseBalances();
-    const dbPositions = await dbClient.query('SELECT symbol FROM trades WHERE status = $1', ['OPEN']);
+    const pool = dbClient.getPool();
+    const dbPositions = await pool.query('SELECT symbol FROM trades WHERE status = $1', ['OPEN']);
     const dbSymbols = dbPositions.rows.map(r => r.symbol);
 
     for (const [asset, bal] of Object.entries(balances)) {
@@ -56,7 +57,7 @@ async function autoSyncOrphanedPositions(exchange, dbClient) {
           if (valueCAD > 0.5) { // ignore dust
             log(`🧩 Auto-sync orphaned balance: ${asset} (${bal}) ≈ ${valueCAD.toFixed(2)} CAD`, 'INFO');
 
-            await dbClient.query(
+            await pool.query(
               `INSERT INTO trades(symbol, side, qty, price, status, created_at)
                VALUES($1, $2, $3, $4, 'OPEN', NOW())`,
               [`${asset}/CAD`, 'BUY', bal, ticker.last]
