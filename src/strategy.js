@@ -17,6 +17,35 @@ import { log, clamp } from './utils.js';
 const TIME_EXIT_CANDLES = 45;
 
 /**
+ * Calculate indicators from OHLCV data
+ * @param {Array} ohlcv - OHLCV data
+ * @returns {Object} Indicators object
+ */
+export function calculateIndicators(ohlcv) {
+  const closes = ohlcv.map(candle => candle.close);
+  const volumes = ohlcv.map(candle => candle.volume);
+  
+  // Calculate indicators
+  const rsi = calculateRSI(closes, 14);
+  const ema20 = calculateEMA(closes, 20);
+  const ema50 = calculateEMA(closes, 50);
+  const ema200 = calculateEMA(closes, 200);
+  const atr = calculateATR(ohlcv, 14);
+  const atrPct = calculateATRPercent(ohlcv, 14);
+  const volZScore = calculateZScore(volumes, 20);
+  
+  return {
+    rsi: rsi[rsi.length - 1],
+    ema20: ema20[ema20.length - 1],
+    ema50: ema50[ema50.length - 1],
+    ema200: ema200[ema200.length - 1],
+    ATR: atr[atr.length - 1],
+    atrPct: atrPct[atrPct.length - 1],
+    volZScore: volZScore[volZScore.length - 1]
+  };
+}
+
+/**
  * Analyze market data and generate trading signal
  * IMPORTANT: Signal is based on close[-2] (completed candle), 
  * but execution uses close[-1] (current/last price)
