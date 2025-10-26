@@ -34,6 +34,51 @@ let botState = {
 };
 
 /**
+ * === 🧠 Adaptive Scalper Mode ===
+ * Bu sistem düşük volatilite dönemlerinde sinyal eşiğini gevşetir.
+ * Yüksek volatilite dönemlerinde ise risk azaltır.
+ */
+function adaptScalperParams(avgATR) {
+  const baseATR = 0.1; // referans volatilite
+  const baseConf = 0.30;
+  const baseATRLow = 0.01;
+
+  let adaptiveConfidence = baseConf;
+  let adaptiveATRLow = baseATRLow;
+
+  // Volatilite düşükse (örnek: ATR < 0.05)
+  if (avgATR < 0.05) {
+    adaptiveConfidence = baseConf - 0.05; // 0.25
+    adaptiveATRLow = 0.005;
+  }
+  // Orta volatilite (0.05 - 0.1)
+  else if (avgATR < 0.1) {
+    adaptiveConfidence = baseConf - 0.025; // 0.275
+    adaptiveATRLow = 0.0075;
+  }
+  // Volatilite yüksekse (0.1 - 0.2)
+  else if (avgATR > 0.1 && avgATR < 0.2) {
+    adaptiveConfidence = baseConf + 0.05; // 0.35
+    adaptiveATRLow = 0.0125;
+  }
+  // Çok yüksek volatilite (örnek pump/dump)
+  else if (avgATR >= 0.2) {
+    adaptiveConfidence = baseConf + 0.1; // 0.4
+    adaptiveATRLow = 0.02;
+  }
+
+  // Safety limits
+  adaptiveConfidence = Math.max(0.2, Math.min(0.5, adaptiveConfidence));
+  adaptiveATRLow = Math.max(0.001, Math.min(0.05, adaptiveATRLow));
+
+  // Bot state'i güncelle
+  botState.currentParams.CONFIDENCE_THRESHOLD = adaptiveConfidence;
+  botState.runtimeConfig.atr_low_pct = adaptiveATRLow;
+
+  log(`[ADAPTIVE] ATR=${avgATR.toFixed(3)} → Confidence=${adaptiveConfidence.toFixed(3)}, ATR_LOW_PCT=${adaptiveATRLow}`, 'INFO');
+}
+
+/**
  * Initialize the bot
  */
 async function initialize() {
@@ -430,6 +475,16 @@ async function lookForEntry() {
       }
       
       log(`  📊 ${symbol}: Got ${ohlcv.length} candles, analyzing...`, 'DEBUG');
+      
+      // Calculate indicators first to get ATR
+      const indicators = strategy.calculateIndicators(ohlcv);
+      
+      // === 🧠 Adaptive Scalper Mode ===
+      // ATR hesaplandıktan hemen sonra adaptive parametreleri güncelle
+      if (indicators && indicators.ATR) {
+        adaptScalperParams(indicators.ATR);
+      }
+      
       const signal = strategy.analyzeMarket(
         ohlcv,
         botState.currentParams,
