@@ -40,6 +40,8 @@ let botState = {
  * @param {object} botState - Botun mevcut durumu (state)
  */
 function adaptScalperParams(avgATR, botState) {
+  log(`🔍 DEBUG: adaptScalperParams called with ATR=${avgATR}, botState=${!!botState}`, 'DEBUG');
+  
   const baseATR = 0.1; // referans volatilite
   const baseConf = 0.30;
   const baseATRLow = 0.01;
@@ -77,6 +79,7 @@ function adaptScalperParams(avgATR, botState) {
   botState.strategy.confidenceThreshold = adaptiveConfidence;
   botState.strategy.atrLowPct = adaptiveATRLow;
 
+  log(`🔍 DEBUG: botState.strategy updated - confidenceThreshold=${adaptiveConfidence}, atrLowPct=${adaptiveATRLow}`, 'DEBUG');
   log(`[ADAPTIVE] ATR=${avgATR.toFixed(3)} → Confidence=${adaptiveConfidence.toFixed(3)}, ATR_LOW_PCT=${adaptiveATRLow}`, 'INFO');
 }
 
@@ -482,9 +485,16 @@ async function lookForEntry() {
       const indicators = strategy.calculateIndicators(ohlcv);
       
       // === 🧠 Adaptive Scalper Mode ===
+      // Debug: ATR değerini kontrol et
+      log(`🔍 DEBUG: indicators.ATR = ${indicators?.ATR}`, 'DEBUG');
+      
       // ATR hesaplandıktan hemen sonra adaptive parametreleri güncelle
       if (indicators && indicators.ATR) {
+        log(`🔍 DEBUG: Calling adaptScalperParams with ATR=${indicators.ATR}`, 'DEBUG');
         adaptScalperParams(indicators.ATR, botState);
+        log(`🔍 DEBUG: After adaptScalperParams - botState.strategy = ${JSON.stringify(botState.strategy)}`, 'DEBUG');
+      } else {
+        log(`🔍 DEBUG: Not calling adaptScalperParams - indicators=${!!indicators}, ATR=${indicators?.ATR}`, 'DEBUG');
       }
       
       const signal = strategy.analyzeMarket(
