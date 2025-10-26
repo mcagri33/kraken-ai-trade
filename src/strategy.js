@@ -199,7 +199,7 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
     if (!trendIsBullish) reasons.push(`❌ bearish trend (EMA20 ${ema20.toFixed(2)} < EMA50 ${ema50.toFixed(2)})`);
     if (!volatilityOK) reasons.push(`❌ volatility (ATR=${atrPct.toFixed(2)}%, range: ${params.ATR_LOW_PCT}-${params.ATR_HIGH_PCT}%)`);
     if (!volumeStrong) reasons.push(`❌ volume weak (Z-score=${volZScore.toFixed(2)}, min: ${params.VOL_Z_MIN})`);
-    if (confidence < (params.CONFIDENCE_THRESHOLD || 0.65)) reasons.push(`❌ low confidence (${confidence.toFixed(3)} < ${params.CONFIDENCE_THRESHOLD || 0.65})`);
+    if (confidence < confidenceThreshold) reasons.push(`❌ low confidence (${confidence.toFixed(3)} < ${confidenceThreshold.toFixed(3)})`);
     
     if (reasons.length > 0) {
       log(`🔍 RSI oversold (${rsi.toFixed(1)}) but NO BUY: ${reasons.join(', ')}`, 'WARN');
