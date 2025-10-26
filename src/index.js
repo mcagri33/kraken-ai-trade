@@ -57,8 +57,8 @@ function adaptScalperParams(indicators, botState) {
 
   // Volatilite düşükse (örnek: ATR < 0.05%)
   if (avgATR < 0.05) {
-    adaptiveConfidence = baseConf - 0.05; // 0.25
-    adaptiveATRLow = 0.005;
+    adaptiveConfidence = baseConf - 0.1; // 0.20 (daha agresif)
+    adaptiveATRLow = 0.01; // 0.01 (daha agresif)
   }
   // Orta volatilite (0.05 - 0.1%)
   else if (avgATR < 0.1) {
@@ -216,7 +216,7 @@ function loadConfig() {
   return {
     KRAKEN_API_KEY: process.env.KRAKEN_API_KEY || '',
     KRAKEN_API_SECRET: process.env.KRAKEN_API_SECRET || '',
-    TRADING_SYMBOLS: (process.env.TRADING_SYMBOLS || 'BTC/CAD,ETH/CAD').split(','),
+    TRADING_SYMBOLS: (process.env.TRADING_SYMBOLS || 'BTC/CAD,ETH/CAD,SOL/CAD').split(','),
     TIMEFRAME: process.env.TIMEFRAME || '1m',
     RISK_CAD: parseFloat(process.env.RISK_CAD || '2'),
     MAX_DAILY_LOSS_CAD: parseFloat(process.env.MAX_DAILY_LOSS_CAD || '5'),
