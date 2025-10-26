@@ -384,14 +384,18 @@ export async function notifyTradeClose(trade) {
   const isProfit = trade.pnl > 0;
   const emoji = isProfit ? '✅' : '❌';
   const pnlSign = trade.pnl >= 0 ? '+' : '';
+  
+  // Tek satırda NetPnL gösterimi (sadeleştirilmiş)
+  const netPnLMessage = `Net PnL: ${pnlSign}${formatNumber(trade.pnl, 2)} CAD (${pnlSign}${formatNumber(trade.pnl_pct, 2)}%)`;
+  
   const message = `
 ${emoji} *Position Closed*
 
-Symbol: ${trade.symbol}
+${trade.symbol}
 Entry: ${formatNumber(trade.entry_price, 2)} CAD
 Exit: ${formatNumber(trade.exit_price, 2)} CAD
-
-PnL: ${pnlSign}${formatNumber(trade.pnl, 2)} CAD (${pnlSign}${formatNumber(trade.pnl_pct, 2)}%)
+${netPnLMessage}
+Fees: ${formatNumber(trade.total_fees || 0, 4)} CAD
 Reason: ${trade.exit_reason || 'MANUAL'}
 
 Duration: ${calculateDuration(trade.opened_at, trade.closed_at)}

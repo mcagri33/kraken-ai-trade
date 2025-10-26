@@ -42,8 +42,9 @@ global.botState = botState;
  * @param {number} feeRate - Fee rate (default: 0.0026 for Kraken taker)
  * @returns {number} Estimated fee
  */
-function estimateFee(orderValue, feeRate = 0.0026) {
-  return orderValue * feeRate;
+function estimateFee(orderValue, feeRate = null) {
+  const rate = feeRate || process.env.FEE_RATE || 0.0026;
+  return orderValue * rate;
 }
 
 /**
@@ -61,8 +62,12 @@ function calculateNetPnL(position, exitPrice, exitFee) {
   // Fee-aware net calculations
   const grossPnL = grossExitValue - entryCost;
   const totalFees = entryFee + exitFee;
-  const netPnL = grossPnL - totalFees;
-  const netPnLPct = entryCost > 0 ? (netPnL / entryCost) * 100 : 0;
+  let netPnL = grossPnL - totalFees;
+  let netPnLPct = entryCost > 0 ? (netPnL / entryCost) * 100 : 0;
+  
+  // PnL rounding: küçük oynaklıkları sıfırla (spam log önleme)
+  if (Math.abs(netPnL) < 0.001) netPnL = 0;
+  if (Math.abs(netPnLPct) < 0.01) netPnLPct = 0;
   
   return {
     grossPnL,
@@ -678,8 +683,8 @@ async function handleBuySignal(symbol, signal) {
     // Calculate position size with fee-aware logic
     const cadToRisk = botState.currentParams.RISK_CAD;
     
-    // Fee-aware calculation: alım + satım toplam fee (0.26% x2 = 0.52%)
-    const feeRate = 0.0026 * 2; // Kraken taker fee for buy + sell
+    // Fee-aware calculation: alım + satım toplam fee (env'den al)
+    const feeRate = (process.env.FEE_RATE || 0.0026) * 2; // Kraken taker fee for buy + sell
     
     // Fee düşülmüş efektif pozisyon değeri
     const netTradeValue = cadToRisk / (1 + feeRate);
