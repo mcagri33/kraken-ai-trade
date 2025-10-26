@@ -663,14 +663,28 @@ export async function getAllBaseBalances() {
  */
 export async function getFeeRates() {
   try {
-    const result = await exchange.privateMethod('TradeVolume');
-    const fees = result.result.fees || {};
-    const btcFees = fees['XXBTZCAD'] || { fee: 0.26, fee_maker: 0.16 }; // fallback
-    
-    return {
-      taker: btcFees.fee / 100,  // örn: 0.0026
-      maker: btcFees.fee_maker / 100
-    };
+    // İlk deneme: CCXT'nin fetchTradingFees metodu
+    try {
+      const result = await exchange.fetchTradingFees();
+      const btcFees = result['BTC/CAD'] || { taker: 0.0026, maker: 0.0016 };
+      
+      return {
+        taker: btcFees.taker || 0.0026,
+        maker: btcFees.maker || 0.0016
+      };
+    } catch (fetchError) {
+      // İkinci deneme: Kraken'in özel API endpoint'i
+      log(`fetchTradingFees failed, trying alternative method...`, 'DEBUG');
+      
+      const result = await exchange.fetch('private/TradeVolume');
+      const fees = result.fees || {};
+      const btcFees = fees['XXBTZCAD'] || { fee: 0.26, fee_maker: 0.16 };
+      
+      return {
+        taker: btcFees.fee / 100,
+        maker: btcFees.fee_maker / 100
+      };
+    }
   } catch (err) {
     log(`⚠️ Could not fetch fee rates: ${err.message}`, 'WARN');
     return { taker: 0.0026, maker: 0.0016 }; // default Kraken değerleri
