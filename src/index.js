@@ -43,7 +43,7 @@ global.botState = botState;
  * @returns {number} Estimated fee
  */
 function estimateFee(orderValue, feeRate = null) {
-  const rate = feeRate || process.env.FEE_RATE || 0.0026;
+  const rate = feeRate || botState.feeRates?.taker || 0.0026;
   return orderValue * rate;
 }
 
@@ -250,6 +250,18 @@ async function initialize() {
     // Restore open positions from database
     await restoreOpenPositions();
     
+    // Load fee rates from Kraken API
+    try {
+      const { taker, maker } = await exchange.getFeeRates();
+      botState.feeRates = { taker, maker, combined: taker * 2 }; // alım + satım
+      botState.lastFeeUpdate = Date.now();
+      log(`💰 Fee rates loaded: Taker=${(taker*100).toFixed(2)}%, Maker=${(maker*100).toFixed(2)}%`, 'INFO');
+    } catch (error) {
+      log(`⚠️ Could not load fee rates: ${error.message}`, 'WARN');
+      // Fallback to default rates
+      botState.feeRates = { taker: 0.0026, maker: 0.0016, combined: 0.0052 };
+    }
+    
     log('✅ Initialization complete', 'SUCCESS');
     log(`Trading enabled: ${botState.tradingEnabled}`, 'INFO');
     log(`Symbols: ${botState.currentParams.TRADING_SYMBOLS.join(', ')}`, 'INFO');
@@ -451,6 +463,9 @@ async function mainLoop() {
         continue;
       }
       
+      // Check and update fee rates if needed (24 hours)
+      await checkAndUpdateFeeRates();
+      
       // Check if we need to run AI optimization
       await checkAndRunOptimization();
       
@@ -502,6 +517,34 @@ function checkDailyLimits() {
   }
   
   return true;
+}
+
+/**
+ * Check and update fee rates if needed (24 hours)
+ */
+async function checkAndUpdateFeeRates() {
+  try {
+    // Check if 24 hours have passed since last update
+    if (Date.now() - (botState.lastFeeUpdate || 0) > 86400000) {
+      log(`🔄 Updating fee rates (24h check)...`, 'INFO');
+      
+      const { taker, maker } = await exchange.getFeeRates();
+      const oldTaker = botState.feeRates?.taker || 0.0026;
+      const oldMaker = botState.feeRates?.maker || 0.0016;
+      
+      botState.feeRates = { taker, maker, combined: taker * 2 };
+      botState.lastFeeUpdate = Date.now();
+      
+      // Log if rates changed
+      if (Math.abs(taker - oldTaker) > 0.0001 || Math.abs(maker - oldMaker) > 0.0001) {
+        log(`💰 Fee rates updated: Taker=${(taker*100).toFixed(2)}% (was ${(oldTaker*100).toFixed(2)}%), Maker=${(maker*100).toFixed(2)}% (was ${(oldMaker*100).toFixed(2)}%)`, 'SUCCESS');
+      } else {
+        log(`💰 Fee rates checked: No change (Taker=${(taker*100).toFixed(2)}%, Maker=${(maker*100).toFixed(2)}%)`, 'INFO');
+      }
+    }
+  } catch (error) {
+    log(`⚠️ Error updating fee rates: ${error.message}`, 'WARN');
+  }
 }
 
 /**
@@ -683,8 +726,8 @@ async function handleBuySignal(symbol, signal) {
     // Calculate position size with fee-aware logic
     const cadToRisk = botState.currentParams.RISK_CAD;
     
-    // Fee-aware calculation: alım + satım toplam fee (env'den al)
-    const feeRate = (process.env.FEE_RATE || 0.0026) * 2; // Kraken taker fee for buy + sell
+    // Fee-aware calculation: dinamik fee rate kullan (Kraken API'den)
+    const feeRate = botState.feeRates?.combined || 0.0052; // alım + satım toplam fee
     
     // Fee düşülmüş efektif pozisyon değeri
     const netTradeValue = cadToRisk / (1 + feeRate);

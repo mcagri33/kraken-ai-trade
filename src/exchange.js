@@ -658,6 +658,26 @@ export async function getAllBaseBalances() {
 }
 
 /**
+ * Get current fee rates from Kraken API
+ * @returns {Promise<Object>} Fee rates {taker, maker}
+ */
+export async function getFeeRates() {
+  try {
+    const result = await exchange.privateMethod('TradeVolume');
+    const fees = result.result.fees || {};
+    const btcFees = fees['XXBTZCAD'] || { fee: 0.26, fee_maker: 0.16 }; // fallback
+    
+    return {
+      taker: btcFees.fee / 100,  // örn: 0.0026
+      maker: btcFees.fee_maker / 100
+    };
+  } catch (err) {
+    log(`⚠️ Could not fetch fee rates: ${err.message}`, 'WARN');
+    return { taker: 0.0026, maker: 0.0016 }; // default Kraken değerleri
+  }
+}
+
+/**
  * Check if we have any open positions (non-CAD balances > dust)
  * @param {number} dustThreshold - Minimum value in CAD to consider (default 1 CAD)
  * @returns {Promise<boolean>} True if has position
