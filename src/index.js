@@ -637,11 +637,19 @@ async function handleBuySignal(symbol, signal) {
       botState.currentParams.TP_MULTIPLIER
     );
     
-    // Calculate position size
+    // Calculate position size with fee-aware logic
     const cadToRisk = botState.currentParams.RISK_CAD;
     
+    // Fee-aware calculation: alım + satım toplam fee (0.26% x2 = 0.52%)
+    const feeRate = 0.0026 * 2; // Kraken taker fee for buy + sell
+    
+    // Fee düşülmüş efektif pozisyon değeri
+    const netTradeValue = cadToRisk / (1 + feeRate);
+    
+    log(`💰 Fee-aware calculation: RISK_CAD=${cadToRisk}, Fee Rate=${(feeRate*100).toFixed(2)}%, Net Trade Value=${netTradeValue.toFixed(2)}`, 'INFO');
+    
     if (botState.dryRun) {
-      log(`[DRY-RUN] Would BUY ${symbol} with ${cadToRisk} CAD @ ${signal.price}`, 'INFO');
+      log(`[DRY-RUN] Would BUY ${symbol} with ${netTradeValue.toFixed(2)} CAD (net) @ ${signal.price}`, 'INFO');
       log(`[DRY-RUN] SL: ${stopLoss.toFixed(2)}, TP: ${takeProfit.toFixed(2)}`, 'INFO');
       return;
     }
@@ -651,8 +659,8 @@ async function handleBuySignal(symbol, signal) {
       return;
     }
     
-    // Execute market buy with CAD cost
-    const order = await exchange.marketBuyCost(symbol, cadToRisk);
+    // Execute market buy with fee-adjusted CAD cost
+    const order = await exchange.marketBuyCost(symbol, netTradeValue);
     
     const actualQty = order.filled || 0;
     const actualPrice = order.average || signal.price;
@@ -689,7 +697,7 @@ async function handleBuySignal(symbol, signal) {
     // Notify
     await telegram.notifyTrade('BUY', position);
     
-    log(`✅ Position opened: ${symbol} ID=${tradeId}`, 'SUCCESS');
+    log(`✅ Position opened: ${symbol} ID=${tradeId} (Fee-aware: ${netTradeValue.toFixed(2)} CAD net)`, 'SUCCESS');
     
   } catch (error) {
     log(`Error handling buy signal: ${error.message}`, 'ERROR');
