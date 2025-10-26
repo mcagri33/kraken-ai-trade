@@ -33,33 +33,39 @@ let botState = {
   dryRun: false
 };
 
+// Make botState globally accessible for Telegram commands
+global.botState = botState;
+
 /**
  * === 🧠 Adaptive Scalper Mode ===
  * Dinamik olarak ATR ve Confidence değerlerini piyasa volatilitesine göre ayarlar.
  * @param {number} avgATR - Ortalama ATR değeri (% olarak)
  * @param {object} botState - Botun mevcut durumu (state)
  */
-function adaptScalperParams(avgATR, botState) {
-  log(`🔍 DEBUG: adaptScalperParams called with ATR=${avgATR}, botState=${!!botState}`, 'DEBUG');
+function adaptScalperParams(indicators, botState) {
+  // Use normalized ATR% (average over last 10 candles)
+  const avgATR = indicators.ATR_PCT || 0;
   
-  const baseATR = 0.1; // referans volatilite
+  log(`🔍 DEBUG: adaptScalperParams called with ATR_PCT=${avgATR}, botState=${!!botState}`, 'DEBUG');
+  
+  const baseATR = 0.1; // referans volatilite (%)
   const baseConf = 0.30;
   const baseATRLow = 0.01;
 
   let adaptiveConfidence = baseConf;
   let adaptiveATRLow = baseATRLow;
 
-  // Volatilite düşükse (örnek: ATR < 0.05)
+  // Volatilite düşükse (örnek: ATR < 0.05%)
   if (avgATR < 0.05) {
     adaptiveConfidence = baseConf - 0.05; // 0.25
     adaptiveATRLow = 0.005;
   }
-  // Orta volatilite (0.05 - 0.1)
+  // Orta volatilite (0.05 - 0.1%)
   else if (avgATR < 0.1) {
     adaptiveConfidence = baseConf - 0.025; // 0.275
     adaptiveATRLow = 0.0075;
   }
-  // Volatilite yüksekse (0.1 - 0.2)
+  // Volatilite yüksekse (0.1 - 0.2%)
   else if (avgATR > 0.1 && avgATR < 0.2) {
     adaptiveConfidence = baseConf + 0.05; // 0.35
     adaptiveATRLow = 0.0125;
@@ -74,13 +80,20 @@ function adaptScalperParams(avgATR, botState) {
   adaptiveConfidence = Math.max(0.2, Math.min(0.5, adaptiveConfidence));
   adaptiveATRLow = Math.max(0.001, Math.min(0.05, adaptiveATRLow));
 
+  // RSI-based dynamic confidence bonus
+  const rsi = indicators.rsi;
+  if (rsi < 25 || rsi > 75) {
+    adaptiveConfidence *= 0.9; // 10% daha kolay tetikleme
+    log(`🔍 DEBUG: RSI bonus applied - RSI=${rsi}, confidence reduced to ${adaptiveConfidence.toFixed(3)}`, 'DEBUG');
+  }
+
   // botState güncelle
   botState.strategy = botState.strategy || {};
   botState.strategy.confidenceThreshold = adaptiveConfidence;
   botState.strategy.atrLowPct = adaptiveATRLow;
 
   log(`🔍 DEBUG: botState.strategy updated - confidenceThreshold=${adaptiveConfidence}, atrLowPct=${adaptiveATRLow}`, 'DEBUG');
-  log(`[ADAPTIVE] ATR=${avgATR.toFixed(3)} → Confidence=${adaptiveConfidence.toFixed(3)}, ATR_LOW_PCT=${adaptiveATRLow}`, 'INFO');
+  log(`[ADAPTIVE] ATR=${avgATR.toFixed(3)}% → Confidence=${adaptiveConfidence.toFixed(3)}, ATR_LOW_PCT=${adaptiveATRLow}`, 'INFO');
 }
 
 /**
@@ -486,15 +499,15 @@ async function lookForEntry() {
       
       // === 🧠 Adaptive Scalper Mode ===
       // Debug: ATR değerini kontrol et
-      log(`🔍 DEBUG: indicators.ATR = ${indicators?.ATR}`, 'DEBUG');
+      log(`🔍 DEBUG: indicators.ATR_PCT = ${indicators?.ATR_PCT}`, 'DEBUG');
       
       // ATR hesaplandıktan hemen sonra adaptive parametreleri güncelle
-      if (indicators && indicators.ATR) {
-        log(`🔍 DEBUG: Calling adaptScalperParams with ATR=${indicators.ATR}`, 'DEBUG');
-        adaptScalperParams(indicators.ATR, botState);
+      if (indicators && indicators.ATR_PCT !== undefined) {
+        log(`🔍 DEBUG: Calling adaptScalperParams with ATR_PCT=${indicators.ATR_PCT}`, 'DEBUG');
+        adaptScalperParams(indicators, botState);
         log(`🔍 DEBUG: After adaptScalperParams - botState.strategy = ${JSON.stringify(botState.strategy)}`, 'DEBUG');
       } else {
-        log(`🔍 DEBUG: Not calling adaptScalperParams - indicators=${!!indicators}, ATR=${indicators?.ATR}`, 'DEBUG');
+        log(`🔍 DEBUG: Not calling adaptScalperParams - indicators=${!!indicators}, ATR_PCT=${indicators?.ATR_PCT}`, 'DEBUG');
       }
       
       const signal = strategy.analyzeMarket(

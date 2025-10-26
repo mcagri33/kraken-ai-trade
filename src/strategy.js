@@ -34,13 +34,28 @@ export function calculateIndicators(ohlcv) {
   const atrPct = calculateATRPercent(ohlcv, 14);
   const volZScore = calculateZScore(volumes, 20);
   
+  // Calculate ATR series for averaging (last 10 candles)
+  const atrSeries = [];
+  for (let i = Math.max(0, ohlcv.length - 10); i < ohlcv.length; i++) {
+    const atrValue = calculateATRPercent(ohlcv.slice(0, i + 1), 14);
+    if (atrValue !== null) {
+      atrSeries.push(atrValue);
+    }
+  }
+  
+  // Calculate average ATR% over last 10 candles
+  const avgATRPct = atrSeries.length > 0 
+    ? atrSeries.reduce((a, b) => a + b, 0) / atrSeries.length 
+    : atrPct;
+  
   return {
     rsi: rsi[rsi.length - 1],
     ema20: ema20[ema20.length - 1],
     ema50: ema50[ema50.length - 1],
     ema200: ema200[ema200.length - 1],
-    ATR: atr, // calculateATR tek değer döndürüyor, array değil
-    atrPct: atrPct, // calculateATRPercent tek değer döndürüyor, array değil
+    ATR: atr, // Raw ATR for backward compatibility
+    ATR_PCT: avgATRPct, // Average ATR% over last 10 candles
+    atrPct: atrPct, // Current ATR%
     volZScore: volZScore[volZScore.length - 1]
   };
 }

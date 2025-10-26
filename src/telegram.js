@@ -552,6 +552,17 @@ async function getAIStatusMessage() {
   message += `RSI Overbought: ${weights.rsi_overbought}\n`;
   message += `ATR Aralığı: ${weights.atr_low_pct}% - ${weights.atr_high_pct}%\n\n`;
   
+  // Adaptive Parameters
+  message += `🧠 *Adaptive Scalper Mode*\n`;
+  if (global.botState && global.botState.strategy) {
+    message += `Adaptive: *ON*\n`;
+    message += `ATR Low PCT: ${global.botState.strategy.atrLowPct?.toFixed(3) || 'N/A'}\n`;
+    message += `Confidence Threshold: ${global.botState.strategy.confidenceThreshold?.toFixed(3) || 'N/A'}\n`;
+    message += `Mode: ${global.botState.strategy.confidenceThreshold <= 0.3 ? 'Low-Vol Scalper' : 'High-Vol Conservative'}\n\n`;
+  } else {
+    message += `Adaptive: *OFF*\n\n`;
+  }
+  
   // Risk Parameters
   message += `🎯 *Risk Yönetimi*\n`;
   message += `Stop Loss: ${runtimeConfig.sl_multiplier}× ATR\n`;
