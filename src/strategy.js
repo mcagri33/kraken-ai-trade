@@ -39,8 +39,8 @@ export function calculateIndicators(ohlcv) {
     ema20: ema20[ema20.length - 1],
     ema50: ema50[ema50.length - 1],
     ema200: ema200[ema200.length - 1],
-    ATR: atr[atr.length - 1],
-    atrPct: atrPct[atrPct.length - 1],
+    ATR: atr, // calculateATR tek değer döndürüyor, array değil
+    atrPct: atrPct, // calculateATRPercent tek değer döndürüyor, array değil
     volZScore: volZScore[volZScore.length - 1]
   };
 }
