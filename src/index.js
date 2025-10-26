@@ -37,52 +37,37 @@ let botState = {
 global.botState = botState;
 
 /**
- * AUTO BALANCE–DB SYNC HANDLER (Kalıcı Çözüm)
+ * AUTO BALANCE–DB SYNC HANDLER (Güçlendirilmiş - BTC Recovery)
  * If wallet has crypto but DB has no position, auto-insert synthetic record.
+ * Bot restart sonrası BTC pozisyonlarını otomatik recover eder.
  */
 async function autoSyncOrphanedPositions() {
   try {
-    const positions = await db.getOpenTrades() || [];
-    const wallet = await exchange.getAllBaseBalances();
+    const positions = (await db.getOpenTrades()) || [];
+    const balances = await exchange.getAllBaseBalances();
 
-    if (!wallet || Object.keys(wallet).length === 0) return;
+    if (!balances) return;
 
-    const orphaned = [];
-    for (const [asset, bal] of Object.entries(wallet)) {
-      if (bal > 0 && asset !== 'CAD') {
-        const symbol = `${asset}/CAD`;
-        const hasPosition = positions.find(p => p.symbol === symbol);
-        if (!hasPosition) {
-          orphaned.push({ symbol, balance: bal });
-        }
-      }
-    }
-
-    if (orphaned.length > 0) {
-      log(`⚠️ Orphaned balances detected: ${orphaned.map(o => o.symbol).join(', ')}`, 'WARN');
-      
-      // Auto-sync if enabled
-      if (process.env.AUTO_SYNC_ORPHANS === 'true') {
-        for (const orphan of orphaned) {
+    for (const [asset, balance] of Object.entries(balances)) {
+      if (balance > 0.000001 && asset === 'BTC') {
+        const exists = positions.find(p => p.symbol === 'BTC/CAD');
+        if (!exists) {
+          log(`⚠️ Orphaned BTC position found (${balance}), recreating in DB...`, 'WARN');
+          
           try {
-            const ticker = await exchange.fetchTicker(orphan.symbol);
-            const valueCAD = orphan.balance * ticker.last;
+            const ticker = await exchange.fetchTicker('BTC/CAD');
+            await db.insertTrade({
+              symbol: 'BTC/CAD',
+              side: 'BUY',
+              qty: balance,
+              price: ticker.last,
+              opened_at: new Date(),
+              source: 'sync'
+            });
             
-            if (valueCAD > 0.5) { // ignore dust
-              log(`🧩 Auto-sync orphaned balance: ${orphan.symbol} (${orphan.balance}) ≈ ${valueCAD.toFixed(2)} CAD`, 'INFO');
-
-              await db.insertTrade({
-                symbol: orphan.symbol,
-                side: 'BUY',
-                qty: orphan.balance,
-                price: ticker.last,
-                opened_at: new Date()
-              });
-
-              log(`✅ Synced ${orphan.symbol} position into DB`, 'SUCCESS');
-            }
+            log(`✅ Recreated BTC/CAD position in DB`, 'SUCCESS');
           } catch (error) {
-            log(`⚠️ Could not sync ${orphan.symbol}: ${error.message}`, 'WARN');
+            log(`⚠️ Could not recreate BTC position: ${error.message}`, 'WARN');
           }
         }
       }
@@ -480,10 +465,8 @@ function checkDailyLimits() {
  * Manage open positions (exit checks + trailing)
  */
 async function manageOpenPositions() {
-  // Auto-sync orphaned positions if enabled
-  if (process.env.AUTO_SYNC_ORPHANS === 'true') {
-    await autoSyncOrphanedPositions();
-  }
+  // Auto-sync orphaned BTC positions (always enabled for BTC recovery)
+  await autoSyncOrphanedPositions();
   
   // Safety check: if Map is empty but we have crypto, reload from DB
   if (botState.openPositions.size === 0) {
