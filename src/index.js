@@ -37,6 +37,43 @@ let botState = {
 global.botState = botState;
 
 /**
+ * AUTO BALANCE–DB SYNC HANDLER
+ * If wallet has crypto but DB has no position, auto-insert synthetic record.
+ */
+async function autoSyncOrphanedPositions(exchange, dbClient) {
+  try {
+    const balances = await exchange.fetchBalance();
+    const dbPositions = await dbClient.query('SELECT symbol FROM trades WHERE status = $1', ['OPEN']);
+    const dbSymbols = dbPositions.rows.map(r => r.symbol);
+
+    for (const [asset, bal] of Object.entries(balances.total)) {
+      if (bal > 0 && asset !== 'CAD' && !dbSymbols.includes(`${asset}/CAD`)) {
+        try {
+          const ticker = await exchange.fetchTicker(`${asset}/CAD`);
+          const valueCAD = bal * ticker.last;
+          
+          if (valueCAD > 0.5) { // ignore dust
+            log(`🧩 Auto-sync orphaned balance: ${asset} (${bal}) ≈ ${valueCAD.toFixed(2)} CAD`, 'INFO');
+
+            await dbClient.query(
+              `INSERT INTO trades(symbol, side, qty, price, status, created_at)
+               VALUES($1, $2, $3, $4, 'OPEN', NOW())`,
+              [`${asset}/CAD`, 'BUY', bal, ticker.last]
+            );
+
+            log(`✅ Synced ${asset}/CAD position into DB`, 'SUCCESS');
+          }
+        } catch (error) {
+          log(`⚠️ Could not sync ${asset}: ${error.message}`, 'WARN');
+        }
+      }
+    }
+  } catch (error) {
+    log(`❌ Error in autoSyncOrphanedPositions: ${error.message}`, 'ERROR');
+  }
+}
+
+/**
  * === 🧠 Adaptive Scalper Mode ===
  * Dinamik olarak ATR ve Confidence değerlerini piyasa volatilitesine göre ayarlar.
  * @param {number} avgATR - Ortalama ATR değeri (% olarak)
@@ -216,9 +253,10 @@ function loadConfig() {
   return {
     KRAKEN_API_KEY: process.env.KRAKEN_API_KEY || '',
     KRAKEN_API_SECRET: process.env.KRAKEN_API_SECRET || '',
-    TRADING_SYMBOLS: (process.env.TRADING_SYMBOLS || 'BTC/CAD,ETH/CAD,SOL/CAD').split(','),
+    TRADING_SYMBOLS: (process.env.TRADING_SYMBOLS || 'BTC/CAD').split(','),
     TIMEFRAME: process.env.TIMEFRAME || '1m',
     RISK_CAD: parseFloat(process.env.RISK_CAD || '2'),
+    AUTO_SYNC_ORPHANS: process.env.AUTO_SYNC_ORPHANS === 'true',
     MAX_DAILY_LOSS_CAD: parseFloat(process.env.MAX_DAILY_LOSS_CAD || '5'),
     MAX_DAILY_TRADES: parseInt(process.env.MAX_DAILY_TRADES || '10'),
     COOLDOWN_MINUTES: parseInt(process.env.COOLDOWN_MINUTES || '5'),
@@ -423,6 +461,11 @@ function checkDailyLimits() {
  * Manage open positions (exit checks + trailing)
  */
 async function manageOpenPositions() {
+  // Auto-sync orphaned positions if enabled
+  if (process.env.AUTO_SYNC_ORPHANS === 'true') {
+    await autoSyncOrphanedPositions(exchange, db);
+  }
+  
   // Safety check: if Map is empty but we have crypto, reload from DB
   if (botState.openPositions.size === 0) {
     log('⚠️  Position map empty but crypto detected, reloading from database...', 'WARN');
