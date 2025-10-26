@@ -37,6 +37,44 @@ let botState = {
 global.botState = botState;
 
 /**
+ * Fee estimation fallback system
+ * @param {number} orderValue - Order value in CAD
+ * @param {number} feeRate - Fee rate (default: 0.0026 for Kraken taker)
+ * @returns {number} Estimated fee
+ */
+function estimateFee(orderValue, feeRate = 0.0026) {
+  return orderValue * feeRate;
+}
+
+/**
+ * Calculate net PnL with fee-aware logic
+ * @param {Object} position - Position object
+ * @param {number} exitPrice - Exit price
+ * @param {number} exitFee - Exit fee
+ * @returns {Object} Net PnL calculation
+ */
+function calculateNetPnL(position, exitPrice, exitFee) {
+  const grossExitValue = position.qty * exitPrice;
+  const entryCost = position.qty * position.entry_price;
+  const entryFee = position.entry_fee || 0;
+  
+  // Fee-aware net calculations
+  const grossPnL = grossExitValue - entryCost;
+  const totalFees = entryFee + exitFee;
+  const netPnL = grossPnL - totalFees;
+  const netPnLPct = entryCost > 0 ? (netPnL / entryCost) * 100 : 0;
+  
+  return {
+    grossPnL,
+    netPnL,
+    netPnLPct,
+    totalFees,
+    grossExitValue,
+    entryCost
+  };
+}
+
+/**
  * AUTO BALANCE–DB SYNC HANDLER (Güçlendirilmiş - BTC Recovery)
  * If wallet has crypto but DB has no position, auto-insert synthetic record.
  * Bot restart sonrası BTC pozisyonlarını otomatik recover eder.
@@ -664,7 +702,12 @@ async function handleBuySignal(symbol, signal) {
     
     const actualQty = order.filled || 0;
     const actualPrice = order.average || signal.price;
-    const entryFee = order.extractedFee?.cost || 0;
+    
+    // Fee-aware entry calculation with fallback
+    const rawEntryFee = order.extractedFee?.cost || 0;
+    const entryFee = rawEntryFee > 0 ? rawEntryFee : estimateFee(netTradeValue);
+    
+    log(`💰 Fee-aware entry: Net Trade Value=${netTradeValue.toFixed(2)}, Entry Fee=${entryFee.toFixed(4)}`, 'INFO');
     
     // Validate order execution
     if (!actualQty || actualQty === 0 || !actualPrice) {
@@ -762,53 +805,59 @@ async function closePosition(symbol, exitPrice, reason) {
     }
     
     const actualExitPrice = sellOrder.average || exitPrice;
-    const exitFee = sellOrder.extractedFee?.cost || 0;
     
-    // Calculate PnL
-    const { pnl, pnl_pct } = strategy.calculatePnL(position, actualExitPrice);
+    // Fee-aware exit calculation with fallback
+    const rawExitFee = sellOrder.extractedFee?.cost || 0;
+    const exitFee = rawExitFee > 0 ? rawExitFee : estimateFee(position.qty * actualExitPrice);
+    
+    // Calculate fee-aware net PnL
+    const netPnLData = calculateNetPnL(position, actualExitPrice, exitFee);
+    
+    log(`💰 Fee-aware exit: Gross PnL=${netPnLData.grossPnL.toFixed(2)}, Net PnL=${netPnLData.netPnL.toFixed(2)}, Total Fees=${netPnLData.totalFees.toFixed(2)}`, 'INFO');
     
     // Calculate candles held
     const candlesHeld = strategy.calculateCandlesElapsed(position.opened_at, 1);
     
-    // Update database
+    // Update database with net PnL
     await db.updateTradeExit(position.id, {
       exit_price: actualExitPrice,
       exit_fee: exitFee,
-      pnl,
-      pnl_pct,
+      pnl: netPnLData.grossPnL, // Gross PnL for compatibility
+      pnl_pct: netPnLData.netPnLPct, // Net PnL percentage
       closed_at: new Date(),
       exit_reason: reason,
       candles_held: candlesHeld
     });
     
-    // Update AI weights
+    // Update AI weights with NET PnL (fee-aware learning)
     botState.currentWeights = ai.updateWeightsFromTrade(
       botState.currentWeights,
-      pnl,
+      netPnLData.netPnL, // Use net PnL for AI learning
       botState.currentParams.AI_LEARNING_RATE
     );
     
-    // Update daily stats
+    // Update daily stats with NET PnL
     botState.dailyStats.tradesCount++;
-    botState.dailyStats.realizedPnL += (pnl - (position.entry_fee + exitFee));
+    botState.dailyStats.realizedPnL += netPnLData.netPnL; // Use net PnL
     
     // Update bot state
     botState.openPositions.delete(symbol);
     botState.lastTradeTime = new Date();
-    botState.lastTradePnL = pnl;
+    botState.lastTradePnL = netPnLData.netPnL; // Use net PnL
     
-    // Notify
+    // Notify with net PnL data
     await telegram.notifyTradeClose({
       ...position,
       exit_price: actualExitPrice,
-      pnl,
-      pnl_pct,
+      pnl: netPnLData.netPnL, // Net PnL for notifications
+      pnl_pct: netPnLData.netPnLPct,
       exit_reason: reason,
-      closed_at: new Date()
+      closed_at: new Date(),
+      total_fees: netPnLData.totalFees
     });
     
-    log(`✅ Position closed: ${symbol} PnL=${pnl.toFixed(2)} CAD (${pnl_pct.toFixed(2)}%)`, 
-        pnl > 0 ? 'SUCCESS' : 'WARN');
+    log(`✅ Position closed: ${symbol} Net PnL=${netPnLData.netPnL.toFixed(2)} CAD (${netPnLData.netPnLPct.toFixed(2)}%)`, 
+        netPnLData.netPnL > 0 ? 'SUCCESS' : 'WARN');
     
   } catch (error) {
     log(`Error closing position: ${error.message}`, 'ERROR');
