@@ -1,312 +1,249 @@
-# 🤖 Kraken AI Trading Bot
-
-Fully automated, AI-learning trading bot for Kraken CAD spot markets (BTC/CAD, ETH/CAD, SOL/CAD).
-
-## 🎯 Features
-
-- **Fully Automated**: 24/7 trading without manual intervention
-- **AI Learning**: Reinforcement learning adapts to market conditions
-- **Risk Management**: Built-in stop-loss, take-profit, and daily limits
-- **Technical Analysis**: EMA, RSI, ATR, and volume-based signals
-- **Telegram Integration**: Real-time notifications and remote commands
-- **MySQL Database**: Complete trade history and performance tracking
-- **PM2 Ready**: Production-ready with process management
-
-## 📊 Strategy
-
-### Entry Conditions (Long-Only)
-1. **Regime Filter**: Price > EMA200 (bullish market)
-2. **Trend**: EMA20 > EMA50 (uptrend)
-3. **RSI**: < 38 (oversold - buy opportunity)
-4. **Volatility**: ATR between 0.4% and 2.0%
-5. **Volume**: Z-score ≥ 0.5 (strong volume)
-6. **Confidence**: Weighted score ≥ 0.65
-
-### Exit Conditions
-- **Stop Loss**: 1.2 × ATR below entry
-- **Take Profit**: 2.4 × ATR above entry (2:1 R/R ratio)
-- **RSI Overbought**: > 62
-- **Regime Change**: Price drops below EMA200
-
-### AI Learning
-- **Per-Trade Learning**: Updates weights after each closed position
-- **Periodic Optimization**: Every 6 hours, adjusts parameters based on:
-  - Win Rate < 52% → Adjust RSI thresholds
-  - Profit Factor < 1.2 → Increase take profit
-  - Max Drawdown > 8×risk → Tighten volatility filter
-
-## 🚀 Installation
-
-### Prerequisites
-- Node.js 18+ 
-- MySQL 5.7+ or MariaDB 10+
-- Kraken account with API keys
-- Telegram bot (optional)
-
-### Step 1: Clone or Create Project
-```bash
-cd C:\xampp\htdocs\kraken-ai-trade
-npm install
-```
-
-### Step 2: Set Up Database
-```bash
-# Start MySQL (if using XAMPP)
-# Open phpMyAdmin or MySQL CLI and run:
-mysql -u root -p < schema.sql
-```
-
-### Step 3: Configure Environment
-Create a `.env` file in the project root:
-
-```bash
-# Copy the example (if available)
-# Or create .env manually with the following content:
-
-# Kraken API Configuration
-KRAKEN_API_KEY=your_kraken_api_key_here
-KRAKEN_API_SECRET=your_kraken_api_secret_here
-
-# Trading Configuration
-TRADING_SYMBOLS=BTC/CAD,ETH/CAD,SOL/CAD
-TIMEFRAME=1m
-RISK_CAD=2
-MAX_DAILY_LOSS_CAD=5
-MAX_DAILY_TRADES=10
-COOLDOWN_MINUTES=5
-
-# Strategy Parameters
-RSI_OVERSOLD=38
-RSI_OVERBOUGHT=62
-EMA_FAST=20
-EMA_SLOW=50
-EMA_REGIME=200
-ATR_LOW_PCT=0.4
-ATR_HIGH_PCT=2.0
-VOL_Z_MIN=0.5
-
-# AI Configuration
-AI_OPT_INTERVAL_MIN=360
-AI_LEARNING_RATE=0.01
-
-# Confidence Weights (initial values)
-WEIGHT_RSI=0.40
-WEIGHT_EMA=0.30
-WEIGHT_ATR=0.15
-WEIGHT_VOL=0.15
-
-# MySQL Database
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=
-DB_NAME=kraken_trader
-
-# Telegram Bot
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-TELEGRAM_CHAT_ID=your_telegram_chat_id_here
-
-# Bot Configuration
-LOOP_INTERVAL_MS=60000
-ENABLE_TRADING=true
-ENABLE_TELEGRAM=true
-```
-
-### Step 4: Get Kraken API Keys
-1. Log in to [Kraken](https://www.kraken.com/)
-2. Go to Settings → API
-3. Create new API key with **"Query Funds"** and **"Create & Modify Orders"** permissions
-4. **DO NOT** enable "Withdraw Funds" for security
-5. Copy API Key and Secret to `.env`
-
-### Step 5: Set Up Telegram Bot (Optional)
-1. Open Telegram and search for [@BotFather](https://t.me/botfather)
-2. Send `/newbot` and follow instructions
-3. Copy the bot token to `.env`
-4. Start a chat with your bot
-5. Get your chat ID by visiting: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
-6. Send a message to your bot, refresh the URL, and copy the `chat.id` value
-
-## 🎮 Usage
-
-### Development Mode
-```bash
-npm start
-# or
-npm run dev
-```
-
-### Production Mode (PM2)
-```bash
-# Install PM2 globally (if not installed)
-npm install -g pm2
-
-# Start the bot
-npm run pm2:start
-
-# View logs
-npm run pm2:logs
-
-# Stop the bot
-npm run pm2:stop
-
-# Restart the bot
-npm run pm2:restart
-
-# View PM2 dashboard
-pm2 monit
-```
-
-## 📱 Telegram Commands
-
-Once the bot is running, you can control it via Telegram:
-
-- `/status` - Show current positions, balance, and PnL
-- `/daily` - Show today's performance summary
-- `/ai_status` - Show AI weights and parameters
-- `/flat` - Emergency close all positions
-- `/help` - Show available commands
-
-## 📈 Performance Metrics
-
-The bot tracks:
-- **Win Rate**: Percentage of profitable trades
-- **Profit Factor**: Gross profit / Gross loss
-- **Max Drawdown**: Largest peak-to-trough decline
-- **Average Win/Loss**: Mean PnL per winning/losing trade
-- **Sharpe Ratio**: Risk-adjusted returns (to be implemented)
-
-## ⚙️ Configuration
-
-### Risk Parameters
-- `RISK_CAD`: CAD amount to risk per trade (default: 2)
-- `MAX_DAILY_LOSS_CAD`: Maximum daily loss before stopping (default: 5)
-- `MAX_DAILY_TRADES`: Maximum trades per day (default: 10)
-- `COOLDOWN_MINUTES`: Wait time after a losing trade (default: 5)
-
-### Strategy Parameters
-- `RSI_OVERSOLD`: RSI threshold for buy signals (default: 38)
-- `RSI_OVERBOUGHT`: RSI threshold for sell signals (default: 62)
-- `EMA_FAST/SLOW/REGIME`: Moving average periods (20/50/200)
-- `ATR_LOW_PCT/ATR_HIGH_PCT`: Volatility range (0.4% - 2.0%)
-- `VOL_Z_MIN`: Minimum volume z-score (default: 0.5)
-
-### AI Parameters
-- `AI_OPT_INTERVAL_MIN`: Optimization frequency in minutes (default: 360 = 6 hours)
-- `AI_LEARNING_RATE`: Learning rate for weight updates (default: 0.01)
-
-## 🗂️ Project Structure
-
-```
-kraken-ai-trade/
-├── src/
-│   ├── index.js          # Main entry point and trading loop
-│   ├── exchange.js       # Kraken API integration (CCXT)
-│   ├── strategy.js       # Trading strategy and signals
-│   ├── ai.js             # AI learning and optimization
-│   ├── db.js             # MySQL database operations
-│   ├── telegram.js       # Telegram bot integration
-│   ├── indicators.js     # Technical indicators (EMA, RSI, ATR)
-│   └── utils.js          # Utility functions
-├── schema.sql            # Database schema
-├── package.json          # Dependencies
-├── .env                  # Configuration (create this)
-├── ai-weights.json       # AI weights (auto-generated)
-└── README.md             # This file
-```
-
-## 🔒 Security
-
-- **API Keys**: Never commit `.env` to version control
-- **Permissions**: Only enable necessary API permissions (no withdrawal)
-- **Testing**: Start with small `RISK_CAD` values
-- **Monitoring**: Always monitor the bot, especially in the first 24-48 hours
-
-## ⚠️ Disclaimer
-
-**This bot is for educational purposes only.**
-
-- Cryptocurrency trading involves significant risk
-- Past performance does not guarantee future results
-- Only trade with money you can afford to lose
-- The authors are not responsible for any financial losses
-- Always test thoroughly on paper trading or with minimal capital first
-
-## 🐛 Troubleshooting
-
-### Database Connection Error
-```bash
-# Check if MySQL is running
-# For XAMPP: Start MySQL from control panel
-# For standalone MySQL:
-net start mysql
-```
-
-### Kraken API Rate Limit
-The bot uses CCXT with rate limiting enabled. If you see rate limit errors:
-- Increase `LOOP_INTERVAL_MS` to 120000 (2 minutes)
-- Reduce number of symbols in `TRADING_SYMBOLS`
-
-### Insufficient Data Error
-The bot needs at least 200 candles (200 minutes of 1m data). Wait ~3-4 hours for enough data to accumulate.
-
-### Telegram Not Working
-- Verify `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are correct
-- Set `ENABLE_TELEGRAM=false` to disable if not using
-
-## 📊 Database Queries
-
-Useful queries for analysis:
-
-```sql
--- View all trades
-SELECT * FROM trades ORDER BY opened_at DESC LIMIT 20;
-
--- Daily performance
-SELECT * FROM daily_summary ORDER BY day DESC;
-
--- AI learning progress
-SELECT * FROM ai_weights ORDER BY updated_at DESC LIMIT 10;
-
--- Win rate by symbol
-SELECT 
-  symbol, 
-  COUNT(*) as trades,
-  SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) / COUNT(*) as win_rate,
-  SUM(pnl) as total_pnl
-FROM trades 
-WHERE closed_at IS NOT NULL
-GROUP BY symbol;
-```
-
-## 🔮 Future Enhancements
-
-- [ ] Multiple timeframe analysis
-- [ ] Short selling (if using margin/futures)
-- [ ] Advanced backtesting with historical data
-- [ ] Web dashboard for monitoring
-- [ ] Paper trading mode
-- [ ] More sophisticated AI models (LSTM, RL agents)
-- [ ] Multi-exchange support
-- [ ] Portfolio rebalancing
-
-## 📚 Resources
-
-- [Kraken API Documentation](https://docs.kraken.com/rest/)
-- [CCXT Library](https://github.com/ccxt/ccxt)
-- [Technical Analysis Basics](https://www.investopedia.com/technical-analysis-4689657)
-
-## 📝 License
-
-ISC License - Use at your own risk
-
-## 🤝 Contributing
-
-Feel free to submit issues and enhancement requests!
+# 🤖 Kraken AI Trading Bot - Güncel Özellikler
+
+## 📊 Genel Bakış
+- **Platform:** Kraken Exchange (CAD Spot Markets)
+- **Strateji:** AI-Powered Adaptive Scalper + Fee-Aware Trading
+- **Risk Yönetimi:** Dinamik Stop Loss & Take Profit + Orphaned Positions Cleanup
+- **Bildirimler:** Telegram Bot Integration + Real-time Alerts
+- **Veritabanı:** MySQL/MariaDB + Auto-sync
+- **PnL System:** Gerçek Kraken Bakiyesi Uyumlu
 
 ---
 
-**Happy Trading! 🚀📈**
+## 🧠 AI & Machine Learning
 
-*Remember: The best trade is the one you don't take if conditions aren't right.*
+### ⚖️ AI Ağırlıkları
+- **RSI:** 40% (Momentum)
+- **EMA:** 30% (Trend)
+- **ATR:** 15% (Volatilite)
+- **Volume:** 15% (Hacim)
 
+### 🔄 Adaptive Learning
+- **Otomatik Optimizasyon:** Her 12 saatte bir
+- **Performance Tracking:** Win Rate & Profit Factor
+- **Dynamic Parameters:** Piyasa koşullarına göre ayarlama
+- **Learning Rate:** 0.03 (Yavaş ve stabil öğrenme)
+
+---
+
+## 🎯 Trading Stratejisi
+
+### 📈 Entry Conditions (BUY)
+- **Regime Filter:** Price > EMA200 (Bullish Market)
+- **Trend Filter:** EMA20 > EMA50 (Uptrend)
+- **RSI Oversold:** RSI < 35 (Oversold Condition)
+- **Volatility:** ATR% in acceptable range (0.01% - 2.0%)
+- **Volume:** Volume Z-Score > -1.0 (Strong Volume)
+- **Confidence:** AI Confidence > 0.200 (Adaptive Threshold)
+
+### 📉 Exit Conditions (SELL)
+- **RSI Overbought:** RSI > 65
+- **Bearish Regime:** Price < EMA200
+- **Trailing Stop:** Dynamic ATR-based stop loss
+- **Take Profit:** 1.5x ATR multiplier
+
+---
+
+## 🧠 Adaptive Scalper Mode
+
+### 📊 Volatility-Based Adaptation
+```javascript
+// Low Volatility (ATR < 0.05%)
+Confidence Threshold: 0.200 (Gevşetilmiş)
+ATR Low PCT: 0.01 (Agresif)
+
+// Medium Volatility (0.05% - 0.1%)
+Confidence Threshold: 0.275 (Orta)
+ATR Low PCT: 0.0075 (Orta)
+
+// High Volatility (0.1% - 0.2%)
+Confidence Threshold: 0.350 (Konservatif)
+ATR Low PCT: 0.0125 (Konservatif)
+
+// Extreme Volatility (> 0.2%)
+Confidence Threshold: 0.400 (Çok Konservatif)
+ATR Low PCT: 0.020 (Çok Konservatif)
+```
+
+### 🎯 RSI Dynamic Bonus
+- **RSI < 25 veya > 75:** Confidence %10 azalır
+- **Fırsat Kaçırmama:** Uç değerlerde agresiflik
+
+---
+
+## 💰 Fee-Aware Trading System
+
+### 🔧 Gerçek PnL Hesaplama
+- **Entry Fee:** Otomatik hesaplama ve düşme
+- **Exit Fee:** Satış sonrası otomatik düşme
+- **Net PnL:** Gerçek kâr/zarar (fee'ler dahil)
+- **Fee Rates:** Kraken API'den dinamik alım (0.26% taker, 0.16% maker)
+
+### ⚖️ Orphaned Positions Auto-Cleanup
+- **Dust Detection:** <0.00002 BTC için uyarı vermez
+- **Auto Sell:** ≥0.00002 BTC otomatik satış
+- **Database Sync:** positions_history tablosuna kayıt
+- **Telegram Alert:** "Auto cleanup executed" bildirimi
+- **Daily Cleanup:** Gün sonu otomatik temizlik
+
+### 🧹 Dust Management
+- **Smart Detection:** Toz vs gerçek kalıntı ayrımı
+- **PnL Adjustment:** Sadece anlamlı kalıntılar için PnL düzeltmesi
+- **Auto Convert:** Küçük miktarları CAD'ye çevirme
+- **Fallback System:** Güvenli hata yönetimi
+
+---
+
+## ⚙️ Risk Yönetimi
+
+### 💰 Position Sizing
+- **Risk per Trade:** 15 CAD (20$'ın %75'i)
+- **Max Daily Loss:** 40 CAD (2x Koruma)
+- **Max Daily Trades:** 5 işlem/gün
+- **Cooldown:** 5 dakika (işlemler arası)
+
+### 🛡️ Stop Loss & Take Profit
+- **Stop Loss:** 0.8x ATR (Dinamik)
+- **Take Profit:** 1.5x ATR (Risk/Reward: 1:1.88)
+- **Trailing Stop:** ATR-based dynamic trailing
+
+### 📊 Single Position Rule
+- **Tek Pozisyon:** Aynı anda sadece 1 pozisyon
+- **Position Management:** Otomatik takip ve yönetim
+- **Dust Protection:** Minimum lot size kontrolü
+
+---
+
+## 📱 Telegram Integration
+
+### 🤖 Bot Komutları
+- `/start` - Bot başlatma ve hoş geldin
+- `/status` - Genel bot durumu
+- `/positions` - Açık pozisyonlar
+- `/ai_status` - AI parametreleri ve adaptive mode
+- `/optimize` - Manuel AI optimizasyonu
+- `/flat` - Acil pozisyon kapatma
+- `/help` - Yardım menüsü
+
+### 📊 AI Status Display
+```
+🧠 Adaptive Scalper Mode
+Adaptive: ON
+ATR Low PCT: 0.010
+Confidence Threshold: 0.200
+Mode: Low-Vol Scalper
+```
+
+### 🔔 Bildirimler
+- **Trade Alerts:** Pozisyon açma/kapama + Net PnL
+- **Auto Cleanup:** Orphaned positions satış bildirimi
+- **PnL Corrections:** Gerçek bakiye düzeltmeleri
+- **Error Notifications:** Hata durumları
+- **Daily Summary:** Günlük özet + cleanup raporu
+- **Extreme RSI:** Aşırı RSI değerleri
+- **Fee Updates:** Dinamik fee rate güncellemeleri
+
+---
+
+## 🗄️ Veritabanı
+
+### 📊 Trade Tracking
+- **Trade History:** Tüm işlemler kayıtlı (entry/exit fees dahil)
+- **Performance Metrics:** Win rate, profit factor, net PnL
+- **Position Management:** Açık pozisyon takibi + orphaned detection
+- **AI Learning Data:** Optimizasyon geçmişi + adaptive parameters
+- **Cleanup Records:** Auto-cleanup işlemleri kayıtlı
+
+### 🔄 Data Persistence
+- **Position Recovery:** Bot restart sonrası pozisyon geri yükleme
+- **Orphaned Sync:** Cüzdan-DB otomatik senkronizasyon
+- **State Management:** Bot durumu korunması + fee rates
+- **Error Handling:** Hata durumlarında veri korunması
+- **Daily Cleanup:** Günlük otomatik temizlik kayıtları
+
+---
+
+## ⚡ Performance Features
+
+### 🚀 Optimizasyonlar
+- **ATR Normalization:** Her pariteye uyum + 10-candle average
+- **Fee-Aware Calculations:** Gerçek net PnL hesaplama
+- **Orphaned Detection:** Akıllı dust vs real balance ayrımı
+- **Memory Management:** Efficient state handling + cleanup
+- **Error Recovery:** Otomatik hata kurtarma + fallback systems
+- **API Optimization:** Kraken fee rates dinamik alım
+
+### 📈 Monitoring
+- **Real-time Logs:** Detaylı işlem logları + cleanup logs
+- **Performance Metrics:** Win rate, profit tracking, net PnL
+- **Market Analysis:** Piyasa durumu analizi + adaptive parameters
+- **Balance Sync:** Gerçek cüzdan-DB senkronizasyonu
+- **Cleanup Tracking:** Orphaned positions takibi
+
+---
+
+## 🎯 Current Configuration
+
+### 📊 Active Settings
+- **Trading Symbol:** BTC/CAD (Tek parite odaklı)
+- **Timeframe:** 5 dakika (Hızlı scalping)
+- **Risk per Trade:** 15 CAD
+- **Max Daily Loss:** 40 CAD
+- **Max Daily Trades:** 5
+- **Cooldown:** 5 dakika
+
+### 🧠 Adaptive Parameters
+- **Confidence Threshold:** 0.200 (Gevşetilmiş)
+- **ATR Low PCT:** 0.01 (Agresif)
+- **RSI Oversold:** 35
+- **RSI Overbought:** 65
+- **Volume Z-Score Min:** -1.0
+
+---
+
+## 🔧 Technical Specifications
+
+### 💻 System Requirements
+- **Node.js:** ES6 Modules
+- **Database:** MySQL/MariaDB
+- **Process Manager:** PM2
+- **API:** Kraken REST API
+- **Telegram:** Bot API
+
+### 📦 Dependencies
+- **Trading:** Kraken API integration
+- **Database:** MySQL connection
+- **Telegram:** Bot API
+- **Technical Analysis:** Custom indicators
+- **AI:** Machine learning algorithms
+
+---
+
+## 🎉 Key Benefits
+
+### ✅ Advantages
+- **Adaptive Strategy:** Piyasa koşullarına göre ayarlama
+- **Fee-Aware Trading:** Gerçek net PnL hesaplama
+- **Orphaned Cleanup:** Otomatik kalıntı temizliği
+- **Risk Management:** Comprehensive risk controls + dust management
+- **AI Learning:** Continuous improvement + adaptive parameters
+- **Telegram Integration:** Real-time monitoring + cleanup alerts
+- **Single Position:** Focused trading approach + balance sync
+- **Low Capital:** Optimized for small accounts (20$)
+- **Real PnL:** Bot PnL = Gerçek Kraken bakiyesi
+
+### 🚀 Performance
+- **Automated Trading:** 24/7 operation + auto cleanup
+- **Fast Execution:** 5-minute scalping + 1s settlement delay
+- **Error Recovery:** Robust error handling + fallback systems
+- **Data Persistence:** Reliable state management + sync
+- **Real-time Monitoring:** Telegram notifications + cleanup alerts
+- **Balance Accuracy:** PnL ve gerçek bakiye eşleşmesi
+
+---
+
+## 📝 Version Info
+- **Version:** 2.1 (Fee-Aware + Orphaned Cleanup)
+- **Last Updated:** 2025-10-27
+- **Features:** AI Learning, Adaptive Parameters, Fee-Aware Trading, Orphaned Positions Auto-Cleanup, Dust Management, Real PnL System
+- **Status:** Production Ready ✅
