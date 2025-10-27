@@ -80,43 +80,101 @@ function calculateNetPnL(position, exitPrice, exitFee) {
 }
 
 /**
- * AUTO BALANCE–DB SYNC HANDLER (Güçlendirilmiş - BTC Recovery)
- * If wallet has crypto but DB has no position, auto-insert synthetic record.
- * Bot restart sonrası BTC pozisyonlarını otomatik recover eder.
+ * AUTO CLEANUP ORPHANED POSITIONS
+ * Kraken cüzdan bakiyelerini kontrol edip orphaned pozisyonları otomatik satar
  */
 async function autoSyncOrphanedPositions() {
   try {
-    const positions = (await db.getOpenTrades()) || [];
+    log('🔍 Checking for orphaned positions...', 'INFO');
+    
+    // Kraken cüzdan bakiyelerini oku
     const balances = await exchange.getAllBaseBalances();
-
-    if (!balances) return;
-
+    const openPositions = await db.getOpenTrades();
+    
+    if (!balances) {
+      log('⚠️ Could not fetch balances', 'WARN');
+      return;
+    }
+    
+    let cleanupCount = 0;
+    
+    // Her coin için kontrol et
     for (const [asset, balance] of Object.entries(balances)) {
-      if (balance > 0.000001 && asset === 'BTC') {
-        const exists = positions.find(p => p.symbol === 'BTC/CAD');
-        if (!exists) {
-          log(`⚠️ Orphaned BTC position found (${balance}), recreating in DB...`, 'WARN');
+      if (balance.total > 0.000001) {
+        // Bu asset için açık pozisyon var mı kontrol et
+        const hasOpenPosition = openPositions.some(pos => 
+          pos.symbol.includes(asset) && pos.closed_at === null
+        );
+        
+        if (!hasOpenPosition) {
+          log(`⚠️ Orphaned ${asset} detected: ${balance.total.toFixed(8)}`, 'WARN');
           
-          try {
-            const ticker = await exchange.fetchTicker('BTC/CAD');
-            await db.insertTrade({
-              symbol: 'BTC/CAD',
-              side: 'BUY',
-              qty: balance,
-              price: ticker.last,
-              opened_at: new Date(),
-              source: 'sync'
-            });
-            
-            log(`✅ Recreated BTC/CAD position in DB`, 'SUCCESS');
-          } catch (error) {
-            log(`⚠️ Could not recreate BTC position: ${error.message}`, 'WARN');
+          // Minimum satış miktarı kontrolü
+          const minSellAmount = await getMinSellAmount(`${asset}/CAD`);
+          
+          if (balance.total >= minSellAmount) {
+            // ENABLE_TRADING kontrolü
+            if (botState.tradingEnabled && !botState.dryRun) {
+              try {
+                // Market order ile CAD'e sat
+                const sellOrder = await exchange.marketSell(`${asset}/CAD`, balance.total);
+                
+                const sellPrice = sellOrder.average || sellOrder.price;
+                const cadValue = balance.total * sellPrice;
+                
+                // positions_history tablosuna kaydet
+                await db.insertTrade({
+                  symbol: `${asset}/CAD`,
+                  side: 'SELL',
+                  qty: balance.total,
+                  price: sellPrice,
+                  opened_at: new Date(),
+                  closed_at: new Date(),
+                  exit_reason: 'AUTO_CLEANUP',
+                  source: 'orphan_cleanup',
+                  pnl: 0, // Orphaned pozisyon için PnL yok
+                  pnl_pct: 0
+                });
+                
+                // Telegram bildirimi
+                await telegram.sendMessage(
+                  `💡 Auto cleanup executed\n` +
+                  `${balance.total.toFixed(8)} ${asset} → ${cadValue.toFixed(2)} CAD\n` +
+                  `Reason: Orphaned position`
+                );
+                
+                log(`✅ Orphaned ${asset} sold: ${balance.total.toFixed(8)} → ${cadValue.toFixed(2)} CAD`, 'SUCCESS');
+                cleanupCount++;
+                
+              } catch (sellError) {
+                log(`❌ Failed to sell orphaned ${asset}: ${sellError.message}`, 'ERROR');
+              }
+            } else {
+              log(`⚠️ Trading disabled, orphaned ${asset} not sold`, 'WARN');
+            }
+          } else {
+            log(`⚠️ ${asset} amount too small to sell: ${balance.total.toFixed(8)} < ${minSellAmount}`, 'WARN');
           }
         }
       }
     }
-  } catch (err) {
-    log(`❌ Error in autoSyncOrphanedPositions: ${err.message}`, 'ERROR');
+    
+    log(`✅ Orphan sync complete. Cleaned up ${cleanupCount} positions.`, 'SUCCESS');
+    
+  } catch (error) {
+    log(`❌ Error in autoSyncOrphanedPositions: ${error.message}`, 'ERROR');
+  }
+}
+
+/**
+ * Get minimum sell amount for a symbol
+ */
+async function getMinSellAmount(symbol) {
+  try {
+    const market = await exchange.getMarketInfo(symbol);
+    return market.limits?.amount?.min || 0.00002; // Default minimum
+  } catch (error) {
+    return 0.00002; // Fallback minimum
   }
 }
 
@@ -456,6 +514,10 @@ async function checkDayReset() {
   
   if (botState.dailyStats.date !== today) {
     log(`📅 Day changed: ${botState.dailyStats.date} → ${today}`, 'INFO');
+    
+    // === 🔧 GÜNLÜK ORPHANED POSITIONS CLEANUP ===
+    // Gün sonunda orphaned pozisyonları otomatik temizle
+    await autoSyncOrphanedPositions();
     
     // === 🔧 GÜN SONU DENGELEME ===
     // Gün sonunda kalan BTC varsa değerini hesaplayıp günlük PnL'ye yansıt
@@ -888,6 +950,10 @@ async function closePosition(symbol, exitPrice, reason) {
     let sellOrder;
     try {
       sellOrder = await exchange.marketSell(symbol, position.qty);
+      
+      // 1 saniye gecikme - Kraken API'nin order settled cevabını tam alması için
+      await sleep(1000);
+      
     } catch (sellError) {
       // Check if it's a minimum amount error
       if (sellError.message.includes('below minimum')) {
