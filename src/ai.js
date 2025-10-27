@@ -448,3 +448,34 @@ export async function mergeRuntimeConfig(envParams) {
   };
 }
 
+/**
+ * Save updated AI weights to file (public export)
+ * @param {Object} weights - Updated weights object
+ * @returns {Promise<boolean>} Success status
+ */
+export async function saveWeights(weights) {
+  try {
+    if (!weights) throw new Error('No weights provided');
+
+    // Save to JSON file
+    await saveWeightsToFile(weights);
+    
+    // Also save to database for persistence
+    const weightsToSave = {
+      w_rsi: weights.w_rsi,
+      w_ema: weights.w_ema,
+      w_atr: weights.w_atr,
+      w_vol: weights.w_vol,
+      updated_at: new Date().toISOString()
+    };
+    
+    await db.insertWeights(weightsToSave);
+    
+    log(`[AI] Weights saved successfully`, 'INFO');
+    return true;
+  } catch (err) {
+    log(`[AI] Error saving weights: ${err.message}`, 'ERROR');
+    return false;
+  }
+}
+
