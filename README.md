@@ -219,31 +219,86 @@ Mode: Low-Vol Scalper
 
 ---
 
+## 🎯 Explain Mode (Clean Feed)
+
+### 📱 Smart Notifications
+- **No Spam:** Market summary mesajları tamamen kaldırıldı
+- **Action-Based:** Sadece alım/satım/zarar durumlarında mesaj
+- **Detailed Reasoning:** Her işlem için gerekçeli açıklama
+- **AI Learning:** Zarar sonrası otomatik AI ağırlık ayarı
+
+### 🔔 Message Types
+```
+🟢 BUY EXECUTED (BTC/CAD)
+Price: 95,234.50 CAD
+Confidence: 78.5%
+
+📊 Reason:
+RSI (28.3) → Oversold
+EMA20 (95,100) > EMA50 (94,800) → Bullish trend
+ATR = 0.85% → Normal volatility
+
+🤖 Decision:
+AI, düşük RSI ve yükselen trend kombinasyonu nedeniyle alım yaptı.
+```
+
+```
+🔴 SELL EXECUTED (BTC/CAD)
+Entry: 95,234.50 → Exit: 96,150.25
+PnL: +91.75 CAD (+0.96%)
+
+📊 Reason:
+RSI (68.2) → Normal
+Trend momentum zayıfladı (EMA20 < EMA50)
+
+🤖 Decision:
+Kâr alımı yapıldı — momentum zayıfladığı için pozisyon kapatıldı.
+```
+
+```
+⚠️ TRADE CLOSED — LOSS
+
+PnL: -15.30 CAD
+
+📊 Reason:
+EMA kırıldı, RSI toparlanamadı (45.2).  
+Stop-loss tetiklendi, fiyat momentum kaybetti.
+
+🤖 Adjustment:
+AI, sonraki optimizasyonda RSI ağırlığını %1 azaltacak.
+```
+
+---
+
 ## 🎉 Key Benefits
 
 ### ✅ Advantages
 - **Adaptive Strategy:** Piyasa koşullarına göre ayarlama
 - **Fee-Aware Trading:** Gerçek net PnL hesaplama
 - **Orphaned Cleanup:** Otomatik kalıntı temizliği
+- **Explain Mode:** Gerekçeli açıklama mesajları
 - **Risk Management:** Comprehensive risk controls + dust management
-- **AI Learning:** Continuous improvement + adaptive parameters
-- **Telegram Integration:** Real-time monitoring + cleanup alerts
+- **AI Learning:** Continuous improvement + adaptive parameters + loss learning
+- **Telegram Integration:** Real-time monitoring + cleanup alerts + clean feed
 - **Single Position:** Focused trading approach + balance sync
 - **Low Capital:** Optimized for small accounts (20$)
 - **Real PnL:** Bot PnL = Gerçek Kraken bakiyesi
+- **No Spam:** Temiz Telegram feed, sadece önemli mesajlar
 
 ### 🚀 Performance
 - **Automated Trading:** 24/7 operation + auto cleanup
 - **Fast Execution:** 5-minute scalping + 1s settlement delay
 - **Error Recovery:** Robust error handling + fallback systems
 - **Data Persistence:** Reliable state management + sync
-- **Real-time Monitoring:** Telegram notifications + cleanup alerts
+- **Real-time Monitoring:** Telegram notifications + cleanup alerts + explain mode
 - **Balance Accuracy:** PnL ve gerçek bakiye eşleşmesi
+- **Clean Feed:** Spam-free Telegram notifications
+- **AI Learning:** Loss-based automatic weight adjustment
 
 ---
 
 ## 📝 Version Info
-- **Version:** 2.1 (Fee-Aware + Orphaned Cleanup)
+- **Version:** 2.3 (Explain Mode + Clean Feed)
 - **Last Updated:** 2025-10-27
-- **Features:** AI Learning, Adaptive Parameters, Fee-Aware Trading, Orphaned Positions Auto-Cleanup, Dust Management, Real PnL System
+- **Features:** AI Learning, Adaptive Parameters, Fee-Aware Trading, Orphaned Positions Auto-Cleanup, Dust Management, Real PnL System, Explain Mode
 - **Status:** Production Ready ✅

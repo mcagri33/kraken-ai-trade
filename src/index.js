@@ -1075,6 +1075,21 @@ async function closePosition(symbol, exitPrice, reason) {
       reason: reason
     });
     
+    // AI Learning: Mini adjustment for losses
+    if (netPnLData.netPnL < 0) {
+      try {
+        // Small adjustment: reduce RSI weight, increase EMA weight
+        botState.currentWeights.w_rsi = Math.max(0.1, botState.currentWeights.w_rsi - 0.01);
+        botState.currentWeights.w_ema = Math.min(0.5, botState.currentWeights.w_ema + 0.01);
+        
+        // Save weights
+        await ai.saveWeights(botState.currentWeights);
+        log(`🧠 AI Learning: Loss detected, RSI weight reduced to ${botState.currentWeights.w_rsi.toFixed(3)}`, 'INFO');
+      } catch (error) {
+        log(`Error updating AI weights: ${error.message}`, 'WARN');
+      }
+    }
+    
     log(`✅ Position closed: ${symbol} Net PnL=${netPnLData.netPnL.toFixed(2)} CAD (${netPnLData.netPnLPct.toFixed(2)}%)`, 
         netPnLData.netPnL > 0 ? 'SUCCESS' : 'WARN');
     
@@ -1212,9 +1227,13 @@ async function checkAndSendMarketSummary() {
 }
 
 /**
- * Send market summary to Telegram
+ * Send market summary to Telegram (DISABLED - No more spam)
  */
 async function sendMarketSummary() {
+  // DISABLED: No more market summary spam
+  return;
+  
+  /* DISABLED CODE - Keeping for reference
   if (botState.recentSignals.length === 0) return;
   
   // Son 5 sinyali al
@@ -1234,6 +1253,7 @@ async function sendMarketSummary() {
   message += `_Son 5 sinyal (10dk rapor)_`;
   
   await telegram.sendMessage(message, { parse_mode: 'Markdown' });
+  */
 }
 
 /**
