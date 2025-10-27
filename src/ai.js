@@ -8,11 +8,15 @@ import * as db from './db.js';
 import { log, clamp, safeDivide, getCurrentDate } from './utils.js';
 import fs from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-const AI_WEIGHTS_FILE = 'ai-weights.json';
-const RUNTIME_CONFIG_FILE = 'runtime-config.json';
-const AI_LEARNING_LOG_FILE = 'ai-learning-log.json';
-const AI_MEMORY_DIR = 'ai-memory';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const AI_WEIGHTS_FILE = path.join(__dirname, 'ai-weights.json');
+const RUNTIME_CONFIG_FILE = path.join(__dirname, 'runtime-config.json');
+const AI_LEARNING_LOG_FILE = path.join(__dirname, 'ai-learning.json');
+const AI_MEMORY_DIR = path.join(__dirname, 'ai-memory');
 
 /**
  * Update AI weights based on trade result (reinforcement learning)

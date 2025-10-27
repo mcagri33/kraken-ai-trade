@@ -1022,12 +1022,8 @@ async function closePosition(symbol, exitPrice, reason) {
       candles_held: candlesHeld
     });
     
-    // Update AI weights with NET PnL (fee-aware learning)
-    botState.currentWeights = ai.updateWeightsFromTrade(
-      botState.currentWeights,
-      netPnLData.netPnL, // Use net PnL for AI learning
-      botState.currentParams.AI_LEARNING_RATE
-    );
+    // AI weights will be updated by analyzeTradeAndOptimize() below
+    // (Removed duplicate learning to prevent double weight updates)
     
     // Update daily stats with NET PnL
     botState.dailyStats.tradesCount++;
