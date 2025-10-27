@@ -11,6 +11,8 @@ import path from 'path';
 
 const AI_WEIGHTS_FILE = 'ai-weights.json';
 const RUNTIME_CONFIG_FILE = 'runtime-config.json';
+const AI_LEARNING_LOG_FILE = 'ai-learning-log.json';
+const AI_MEMORY_DIR = 'ai-memory';
 
 /**
  * Update AI weights based on trade result (reinforcement learning)
@@ -476,6 +478,278 @@ export async function saveWeights(weights) {
   } catch (err) {
     log(`[AI] Error saving weights: ${err.message}`, 'ERROR');
     return false;
+  }
+}
+
+// ==================== SELF-LEARNING MODE ====================
+
+/**
+ * Self-learning trade analysis and weight optimization
+ * @param {Object} tradeData - Trade data {pnl, entry_reason, exit_reason, indicators}
+ * @param {Object} currentWeights - Current AI weights
+ * @returns {Promise<Object>} {newWeights, reasonText, adjustmentText}
+ */
+export async function analyzeTradeAndOptimize(tradeData) {
+  try {
+    const { pnl, entry_reason, exit_reason, indicators } = tradeData;
+    const currentWeights = await loadWeights();
+    
+    // Determine if profit or loss
+    const isProfit = pnl > 0;
+    
+    // Create reason text based on exit reason
+    const reasonText = generateReasonText(exit_reason, indicators);
+    
+    // Optimize weights based on result
+    const { newWeights, adjustmentText } = optimizeWeightsFromTrade(currentWeights, pnl);
+    
+    // Save updated weights
+    await saveWeights(newWeights);
+    
+    // Log learning event
+    await logLearningEvent({
+      timestamp: new Date().toISOString(),
+      result: isProfit ? 'PROFIT' : 'LOSS',
+      pnl: pnl,
+      reason: reasonText,
+      adjustments: adjustmentText,
+      weights: newWeights
+    });
+    
+    // Update runtime config if needed
+    await checkAndUpdateRuntimeConfig();
+    
+    log(`[AI] Self-learning update applied: ${isProfit ? 'PROFIT' : 'LOSS'}`, 'INFO');
+    
+    return {
+      newWeights,
+      reasonText,
+      adjustmentText,
+      isProfit
+    };
+    
+  } catch (error) {
+    log(`[AI] Error in self-learning analysis: ${error.message}`, 'ERROR');
+    return null;
+  }
+}
+
+/**
+ * Optimize weights based on trade result
+ * @param {Object} weights - Current weights
+ * @param {number} pnl - Trade PnL
+ * @returns {Object} {newWeights, adjustmentText}
+ */
+function optimizeWeightsFromTrade(weights, pnl) {
+  const isProfit = pnl > 0;
+  const newWeights = { ...weights };
+  
+  let adjustmentText = '';
+  
+  if (isProfit) {
+    // Profit: Increase RSI and EMA weights, decrease ATR and VOL
+    newWeights.w_rsi = Math.min(0.6, newWeights.w_rsi + 0.01);
+    newWeights.w_ema = Math.min(0.6, newWeights.w_ema + 0.01);
+    newWeights.w_atr = Math.max(0.1, newWeights.w_atr - 0.005);
+    newWeights.w_vol = Math.max(0.1, newWeights.w_vol - 0.005);
+    
+    adjustmentText = 'RSI +1%, EMA +1%, ATR -0.5%, VOL -0.5%';
+  } else {
+    // Loss: Decrease RSI and EMA weights, increase ATR and VOL
+    newWeights.w_rsi = Math.max(0.1, newWeights.w_rsi - 0.01);
+    newWeights.w_ema = Math.max(0.1, newWeights.w_ema - 0.01);
+    newWeights.w_atr = Math.min(0.6, newWeights.w_atr + 0.005);
+    newWeights.w_vol = Math.min(0.6, newWeights.w_vol + 0.005);
+    
+    adjustmentText = 'RSI -1%, EMA -1%, ATR +0.5%, VOL +0.5%';
+  }
+  
+  // Normalize weights to sum to 1.0
+  const total = newWeights.w_rsi + newWeights.w_ema + newWeights.w_atr + newWeights.w_vol;
+  newWeights.w_rsi /= total;
+  newWeights.w_ema /= total;
+  newWeights.w_atr /= total;
+  newWeights.w_vol /= total;
+  
+  return { newWeights, adjustmentText };
+}
+
+/**
+ * Generate reason text based on exit reason and indicators
+ * @param {string} exitReason - Exit reason
+ * @param {Object} indicators - Market indicators
+ * @returns {string} Reason text
+ */
+function generateReasonText(exitReason, indicators) {
+  const reasonMap = {
+    'STOP_LOSS': 'EMA kırıldı, RSI toparlanamadı, stop-loss tetiklendi',
+    'TAKE_PROFIT': 'Hedef fiyat seviyesine ulaşıldı, kâr alımı yapıldı',
+    'RSI_OVERBOUGHT': 'RSI aşırı alım seviyesine çıktı, momentum zayıfladı',
+    'BEARISH_REGIME': 'Fiyat EMA200 altına düştü, bearish trend başladı',
+    'TRAILING_STOP': 'Trailing stop tetiklendi, trend dönüşü tespit edildi',
+    'MANUAL': 'Manuel pozisyon kapatma',
+    'TIMEOUT': 'Zaman aşımı, pozisyon otomatik kapatıldı'
+  };
+  
+  return reasonMap[exitReason] || 'Bilinmeyen sebep';
+}
+
+/**
+ * Log learning event to AI learning log
+ * @param {Object} eventData - Learning event data
+ */
+async function logLearningEvent(eventData) {
+  try {
+    // Load existing log
+    let logData = [];
+    try {
+      const data = await fs.readFile(AI_LEARNING_LOG_FILE, 'utf8');
+      logData = JSON.parse(data);
+    } catch {
+      logData = [];
+    }
+    
+    // Add new event
+    logData.push(eventData);
+    
+    // Keep only last 50 events
+    if (logData.length > 50) {
+      logData = logData.slice(-50);
+    }
+    
+    // Save updated log
+    await fs.writeFile(AI_LEARNING_LOG_FILE, JSON.stringify(logData, null, 2));
+    
+  } catch (error) {
+    log(`[AI] Error logging learning event: ${error.message}`, 'WARN');
+  }
+}
+
+/**
+ * Check and update runtime config based on performance
+ */
+async function checkAndUpdateRuntimeConfig() {
+  try {
+    const recentLogs = await getRecentLearningLogs(10);
+    if (recentLogs.length < 5) return; // Need at least 5 trades for analysis
+    
+    const winRate = recentLogs.filter(log => log.result === 'PROFIT').length / recentLogs.length;
+    const avgPnL = recentLogs.reduce((sum, log) => sum + log.pnl, 0) / recentLogs.length;
+    
+    const currentConfig = await loadRuntimeConfig();
+    let updated = false;
+    
+    // Win rate optimization
+    if (winRate < 0.5) {
+      currentConfig.rsi_oversold = Math.max(30, currentConfig.rsi_oversold - 1);
+      currentConfig.rsi_overbought = Math.min(70, currentConfig.rsi_overbought + 1);
+      updated = true;
+    }
+    
+    // Profit factor optimization
+    if (avgPnL < 0) {
+      currentConfig.tp_multiplier = Math.min(3.5, currentConfig.tp_multiplier * 1.1);
+      updated = true;
+    }
+    
+    // Drawdown protection
+    const maxLoss = Math.min(...recentLogs.map(log => log.pnl));
+    if (maxLoss < -20) { // Assuming 20 CAD risk per trade
+      currentConfig.sl_multiplier = Math.max(0.8, currentConfig.sl_multiplier * 0.9);
+      updated = true;
+    }
+    
+    if (updated) {
+      await saveRuntimeConfig(currentConfig);
+      log(`[AI] Runtime config optimized: WR=${(winRate*100).toFixed(1)}%, AvgPnL=${avgPnL.toFixed(2)}`, 'INFO');
+    }
+    
+  } catch (error) {
+    log(`[AI] Error updating runtime config: ${error.message}`, 'WARN');
+  }
+}
+
+/**
+ * Get recent learning logs
+ * @param {number} count - Number of recent logs to get
+ * @returns {Promise<Array>} Recent learning logs
+ */
+async function getRecentLearningLogs(count = 10) {
+  try {
+    const data = await fs.readFile(AI_LEARNING_LOG_FILE, 'utf8');
+    const logs = JSON.parse(data);
+    return logs.slice(-count);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Check for low-risk mode activation
+ * @returns {Promise<Object>} {activated: boolean, message: string}
+ */
+export async function checkLowRiskMode() {
+  try {
+    const recentLogs = await getRecentLearningLogs(10);
+    if (recentLogs.length < 10) return { activated: false, message: '' };
+    
+    // Count losses in last 10 trades
+    const losses = recentLogs.filter(log => log.result === 'LOSS').length;
+    
+    if (losses >= 5) {
+      // Activate low-risk mode
+      const currentConfig = await loadRuntimeConfig();
+      
+      // Reduce risk and increase TP
+      currentConfig.tp_multiplier = 2.0;
+      currentConfig.sl_multiplier = Math.max(0.8, currentConfig.sl_multiplier * 0.9);
+      
+      await saveRuntimeConfig(currentConfig);
+      
+      const message = `⚠️ Low-Risk Mode Activated\n\n` +
+                     `Reason: ${losses}/10 consecutive losses\n` +
+                     `TP: ${currentConfig.tp_multiplier}x\n` +
+                     `SL: ${currentConfig.sl_multiplier}x`;
+      
+      log(`[AI] Low-risk mode activated: ${losses}/10 losses`, 'WARN');
+      
+      return { activated: true, message };
+    }
+    
+    return { activated: false, message: '' };
+    
+  } catch (error) {
+    log(`[AI] Error checking low-risk mode: ${error.message}`, 'WARN');
+    return { activated: false, message: '' };
+  }
+}
+
+/**
+ * Create backup of AI files
+ */
+export async function createAIBackup() {
+  try {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
+    const backupDir = path.join(AI_MEMORY_DIR, timestamp);
+    
+    await fs.mkdir(backupDir, { recursive: true });
+    
+    // Copy files
+    const files = [AI_WEIGHTS_FILE, RUNTIME_CONFIG_FILE, AI_LEARNING_LOG_FILE];
+    for (const file of files) {
+      try {
+        await fs.copyFile(file, path.join(backupDir, file));
+      } catch {
+        // File might not exist, skip
+      }
+    }
+    
+    log(`[AI] Backup created: ${backupDir}`, 'INFO');
+    return backupDir;
+    
+  } catch (error) {
+    log(`[AI] Error creating backup: ${error.message}`, 'ERROR');
+    return null;
   }
 }
 

@@ -270,6 +270,58 @@ AI, sonraki optimizasyonda RSI ağırlığını %1 azaltacak.
 
 ---
 
+## 🧠 Self-Learning Mode
+
+### 🔄 Automatic Weight Optimization
+- **Trade Analysis:** Her işlem sonrası otomatik analiz
+- **Weight Adjustment:** Kazanç/kayıp durumuna göre ağırlık ayarı
+- **Learning Log:** Son 50 işlem kayıtlı (ai-learning-log.json)
+- **Runtime Optimization:** Strateji parametreleri otomatik güncelleme
+
+### 📊 Learning Algorithm
+```
+Kazanç (PnL > 0):
+- RSI +1%, EMA +1%
+- ATR -0.5%, VOL -0.5%
+
+Kayıp (PnL < 0):
+- RSI -1%, EMA -1%
+- ATR +0.5%, VOL +0.5%
+```
+
+### 🎯 Enhanced Explain Messages
+```
+✅ TRADE CLOSED — PROFIT
+
+PnL: +15.30 CAD
+
+📊 Reason: Hedef fiyat seviyesine ulaşıldı, kâr alımı yapıldı
+
+🤖 Adjustment: RSI +1%, EMA +1%, ATR -0.5%, VOL -0.5%
+
+🧠 AI Weights Updated →
+RSI 0.41, EMA 0.31, ATR 0.14, VOL 0.14
+```
+
+### ⚠️ Low-Risk Mode
+- **Activation:** 10 işlemde 5+ kayıp
+- **Actions:** TP=2.0x, SL sıkılaştırma
+- **Notification:** Telegram bildirimi
+- **Auto-Recovery:** Performans iyileşince normale dönüş
+
+### 💾 Backup System
+- **Auto Backup:** ai-memory/ klasörüne yedekleme
+- **Files:** ai-weights.json, runtime-config.json, ai-learning-log.json
+- **Timestamp:** YYYY-MM-DD-HHMM formatında
+
+### 🔧 Runtime Config Auto-Optimization
+- **Win Rate < 50%:** RSI aralıkları gevşetilir
+- **Profit Factor < 1.2:** TP multiplier %10 artırılır
+- **Drawdown > Risk*8:** SL multiplier %10 sıkılaştırılır
+- **Auto-Save:** JSON ve veritabanına kayıt
+
+---
+
 ## 🎉 Key Benefits
 
 ### ✅ Advantages
@@ -277,6 +329,7 @@ AI, sonraki optimizasyonda RSI ağırlığını %1 azaltacak.
 - **Fee-Aware Trading:** Gerçek net PnL hesaplama
 - **Orphaned Cleanup:** Otomatik kalıntı temizliği
 - **Explain Mode:** Gerekçeli açıklama mesajları
+- **Self-Learning:** Her işlem sonrası otomatik öğrenme
 - **Risk Management:** Comprehensive risk controls + dust management
 - **AI Learning:** Continuous improvement + adaptive parameters + loss learning
 - **Telegram Integration:** Real-time monitoring + cleanup alerts + clean feed
@@ -284,6 +337,7 @@ AI, sonraki optimizasyonda RSI ağırlığını %1 azaltacak.
 - **Low Capital:** Optimized for small accounts (20$)
 - **Real PnL:** Bot PnL = Gerçek Kraken bakiyesi
 - **No Spam:** Temiz Telegram feed, sadece önemli mesajlar
+- **Auto-Backup:** AI memory sistemi ile güvenli yedekleme
 
 ### 🚀 Performance
 - **Automated Trading:** 24/7 operation + auto cleanup
@@ -294,11 +348,13 @@ AI, sonraki optimizasyonda RSI ağırlığını %1 azaltacak.
 - **Balance Accuracy:** PnL ve gerçek bakiye eşleşmesi
 - **Clean Feed:** Spam-free Telegram notifications
 - **AI Learning:** Loss-based automatic weight adjustment
+- **Self-Learning:** Her işlem sonrası otomatik optimizasyon
+- **Memory System:** AI learning log + backup sistemi
 
 ---
 
 ## 📝 Version Info
-- **Version:** 2.3 (Explain Mode + Clean Feed)
+- **Version:** 2.4 (Self-Learning Mode)
 - **Last Updated:** 2025-10-27
-- **Features:** AI Learning, Adaptive Parameters, Fee-Aware Trading, Orphaned Positions Auto-Cleanup, Dust Management, Real PnL System, Explain Mode
+- **Features:** AI Learning, Adaptive Parameters, Fee-Aware Trading, Orphaned Positions Auto-Cleanup, Dust Management, Real PnL System, Explain Mode, Self-Learning Mode
 - **Status:** Production Ready ✅

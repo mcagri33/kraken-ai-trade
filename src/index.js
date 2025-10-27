@@ -592,6 +592,12 @@ async function mainLoop() {
       // Check if we need to run AI optimization
       await checkAndRunOptimization();
       
+      // Check for low-risk mode activation
+      const lowRiskCheck = await ai.checkLowRiskMode();
+      if (lowRiskCheck.activated) {
+        await telegram.sendMessage(lowRiskCheck.message, { parse_mode: 'Markdown' });
+      }
+      
       // Check if we need to send market summary (DISABLED - No more spam)
       // await checkAndSendMarketSummary();
       
@@ -1061,33 +1067,65 @@ async function closePosition(symbol, exitPrice, reason) {
       total_fees: netPnLData.totalFees
     });
     
-    // Send explain message
-    const messageType = netPnLData.netPnL < 0 ? "LOSS" : "SELL";
-    await sendExplainMessage(messageType, symbol, {
-      rsi: 0, // Will be updated with current RSI if available
-      ema20: 0,
-      ema50: 0,
-      atrPct: 0,
-      entryPrice: position.entry_price,
-      exitPrice: actualExitPrice,
-      pnl: netPnLData.netPnL,
-      confidence: position.ai_confidence,
-      reason: reason
-    });
-    
-    // AI Learning: Mini adjustment for losses
-    if (netPnLData.netPnL < 0) {
-      try {
-        // Small adjustment: reduce RSI weight, increase EMA weight
-        botState.currentWeights.w_rsi = Math.max(0.1, botState.currentWeights.w_rsi - 0.01);
-        botState.currentWeights.w_ema = Math.min(0.5, botState.currentWeights.w_ema + 0.01);
+    // Self-Learning Analysis
+    try {
+      const learningResult = await ai.analyzeTradeAndOptimize({
+        pnl: netPnLData.netPnL,
+        entry_reason: 'AI_SIGNAL',
+        exit_reason: reason,
+        indicators: {
+          rsi: 0, // Will be updated with current indicators if available
+          ema20: 0,
+          ema50: 0,
+          atrPct: 0
+        }
+      });
+      
+      if (learningResult) {
+        // Update bot state with new weights
+        botState.currentWeights = learningResult.newWeights;
         
-        // Save weights
-        await ai.saveWeights(botState.currentWeights);
-        log(`🧠 AI Learning: Loss detected, RSI weight reduced to ${botState.currentWeights.w_rsi.toFixed(3)}`, 'INFO');
-      } catch (error) {
-        log(`Error updating AI weights: ${error.message}`, 'WARN');
+        // Send enhanced explain message with AI learning info
+        await sendEnhancedExplainMessage(symbol, {
+          pnl: netPnLData.netPnL,
+          entryPrice: position.entry_price,
+          exitPrice: actualExitPrice,
+          reason: learningResult.reasonText,
+          adjustment: learningResult.adjustmentText,
+          newWeights: learningResult.newWeights,
+          isProfit: learningResult.isProfit
+        });
+      } else {
+        // Fallback to basic explain message
+        const messageType = netPnLData.netPnL < 0 ? "LOSS" : "SELL";
+        await sendExplainMessage(messageType, symbol, {
+          rsi: 0,
+          ema20: 0,
+          ema50: 0,
+          atrPct: 0,
+          entryPrice: position.entry_price,
+          exitPrice: actualExitPrice,
+          pnl: netPnLData.netPnL,
+          confidence: position.ai_confidence,
+          reason: reason
+        });
       }
+    } catch (error) {
+      log(`Error in self-learning analysis: ${error.message}`, 'WARN');
+      
+      // Fallback to basic explain message
+      const messageType = netPnLData.netPnL < 0 ? "LOSS" : "SELL";
+      await sendExplainMessage(messageType, symbol, {
+        rsi: 0,
+        ema20: 0,
+        ema50: 0,
+        atrPct: 0,
+        entryPrice: position.entry_price,
+        exitPrice: actualExitPrice,
+        pnl: netPnLData.netPnL,
+        confidence: position.ai_confidence,
+        reason: reason
+      });
     }
     
     log(`✅ Position closed: ${symbol} Net PnL=${netPnLData.netPnL.toFixed(2)} CAD (${netPnLData.netPnLPct.toFixed(2)}%)`, 
@@ -1146,6 +1184,37 @@ async function notifyExtremeRSI(symbol, signal) {
       
       lastExtremeNotify.set(symbol, now);
     }
+  }
+}
+
+/**
+ * Send enhanced explain message with AI learning info
+ * @param {string} symbol - Trading symbol
+ * @param {Object} data - Trade data with AI learning results
+ */
+async function sendEnhancedExplainMessage(symbol, data) {
+  const { pnl, entryPrice, exitPrice, reason, adjustment, newWeights, isProfit } = data;
+  const emoji = isProfit ? '✅' : '⚠️';
+  const result = isProfit ? 'PROFIT' : 'LOSS';
+  const pnlSign = pnl >= 0 ? '+' : '';
+  
+  const message = `
+${emoji} *TRADE CLOSED — ${result}*
+
+PnL: ${pnlSign}${pnl.toFixed(2)} CAD
+
+📊 *Reason:* ${reason}
+
+🤖 *Adjustment:* ${adjustment}
+
+🧠 *AI Weights Updated →*
+RSI ${newWeights.w_rsi.toFixed(2)}, EMA ${newWeights.w_ema.toFixed(2)}, ATR ${newWeights.w_atr.toFixed(2)}, VOL ${newWeights.w_vol.toFixed(2)}
+  `.trim();
+
+  try {
+    await telegram.sendMessage(message, { parse_mode: "Markdown" });
+  } catch (err) {
+    log(`Telegram enhanced explain message failed: ${err.message}`, 'ERROR');
   }
 }
 

@@ -541,20 +541,18 @@ async function getAIStatusMessage() {
     runtimeConfig = { tp_multiplier: 2.4, sl_multiplier: 1.2 };
   }
 
-  let message = `🧠 *AI Status & Parameters*\n\n`;
+  let message = `🧠 *AI Status*\n\n`;
   
-  // AI Weights
-  message += `⚖️ *Signal Ağırlıkları*\n`;
-  message += `RSI: ${formatNumber(weights.w_rsi, 3)} (${(weights.w_rsi * 100).toFixed(0)}%)\n`;
-  message += `EMA: ${formatNumber(weights.w_ema, 3)} (${(weights.w_ema * 100).toFixed(0)}%)\n`;
-  message += `ATR: ${formatNumber(weights.w_atr, 3)} (${(weights.w_atr * 100).toFixed(0)}%)\n`;
-  message += `VOL: ${formatNumber(weights.w_vol, 3)} (${(weights.w_vol * 100).toFixed(0)}%)\n\n`;
-
-  // Strategy Parameters
-  message += `📊 *Strateji Parametreleri*\n`;
-  message += `RSI Oversold: ${weights.rsi_oversold}\n`;
-  message += `RSI Overbought: ${weights.rsi_overbought}\n`;
-  message += `ATR Aralığı: ${weights.atr_low_pct}% - ${weights.atr_high_pct}%\n\n`;
+  // AI Weights (Self-Learning Mode)
+  message += `RSI: ${weights.w_rsi.toFixed(2)}\n`;
+  message += `EMA: ${weights.w_ema.toFixed(2)}\n`;
+  message += `ATR: ${weights.w_atr.toFixed(2)}\n`;
+  message += `VOL: ${weights.w_vol.toFixed(2)}\n\n`;
+  
+  // Runtime Config
+  message += `RSI Range: ${runtimeConfig.rsi_oversold} / ${runtimeConfig.rsi_overbought}\n`;
+  message += `TP: ${runtimeConfig.tp_multiplier}x, SL: ${runtimeConfig.sl_multiplier}x\n`;
+  message += `Last Optimized: ${runtimeConfig.last_optimized || 'Never'}\n\n`;
   
   // Adaptive Parameters
   message += `🧠 *Adaptive Scalper Mode*\n`;
