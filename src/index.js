@@ -408,6 +408,47 @@ async function restoreOpenPositions() {
 }
 
 /**
+ * Dust auto-clean function (with throttling)
+ * Automatically converts small BTC dust to CAD
+ */
+let lastDustCleanTime = 0;
+const DUST_CLEAN_INTERVAL = 10 * 60 * 1000; // 10 minutes
+
+async function autoCleanDust() {
+  const now = Date.now();
+  
+  // Only run every 10 minutes
+  if (now - lastDustCleanTime < DUST_CLEAN_INTERVAL) {
+    return;
+  }
+  
+  lastDustCleanTime = now;
+  
+  try {
+    const balances = await exchange.getAllBaseBalances();
+    const btc = balances['BTC'] || 0;
+    if (btc > 0 && btc < 0.00002) {
+      // Try to convert dust to CAD
+      try {
+        const result = await exchange.convert('BTC', 'CAD');
+        if (result) {
+          log(`🧹 Kalan ${result.amount.toFixed(8)} BTC otomatik satıldı → ${result.cost.toFixed(2)} CAD`, 'INFO');
+          await telegram.sendMessage(`🧹 Kalan ${result.amount.toFixed(8)} BTC otomatik satıldı → ${result.cost.toFixed(2)} CAD`);
+        }
+      } catch (convertError) {
+        log(`⚠️ Dust conversion failed: ${convertError.message}`, 'WARN');
+        // Fallback: just log the dust amount
+        const ticker = await exchange.fetchTicker('BTC/CAD');
+        const dustValue = btc * ticker.last;
+        log(`⚠️ Dust detected but cannot convert: ${btc.toFixed(8)} BTC (${dustValue.toFixed(2)} CAD)`, 'WARN');
+      }
+    }
+  } catch (err) {
+    log(`⚠️ Dust cleanup hatası: ${err.message}`, 'WARN');
+  }
+}
+
+/**
  * Check and reset daily stats (UTC 00:00)
  */
 async function checkDayReset() {
@@ -415,6 +456,22 @@ async function checkDayReset() {
   
   if (botState.dailyStats.date !== today) {
     log(`📅 Day changed: ${botState.dailyStats.date} → ${today}`, 'INFO');
+    
+    // === 🔧 GÜN SONU DENGELEME ===
+    // Gün sonunda kalan BTC varsa değerini hesaplayıp günlük PnL'ye yansıt
+    try {
+      const balances = await exchange.getAllBaseBalances();
+      const btc = balances['BTC'] || 0;
+      if (btc > 0) {
+        const ticker = await exchange.fetchTicker('BTC/CAD');
+        const unrealized = btc * ticker.last;
+        botState.dailyStats.realizedPnL -= unrealized;
+        log(`📉 Gün sonu PnL düzeltmesi: -${unrealized.toFixed(2)} CAD (kalan ${btc.toFixed(8)} BTC)`, 'INFO');
+        await telegram.sendMessage(`📉 Gün sonu PnL düzeltmesi: -${unrealized.toFixed(2)} CAD (kalan ${btc.toFixed(8)} BTC)`);
+      }
+    } catch (balanceError) {
+      log(`⚠️ Error checking end-of-day balance: ${balanceError.message}`, 'WARN');
+    }
     
     // Update yesterday's summary
     await db.updateDailySummary(botState.dailyStats.date);
@@ -465,6 +522,9 @@ async function mainLoop() {
       
       // Check and update fee rates if needed (24 hours)
       await checkAndUpdateFeeRates();
+      
+      // Auto-clean dust (every 10 minutes)
+      await autoCleanDust();
       
       // Check if we need to run AI optimization
       await checkAndRunOptimization();
@@ -887,6 +947,22 @@ async function closePosition(symbol, exitPrice, reason) {
     // Update daily stats with NET PnL
     botState.dailyStats.tradesCount++;
     botState.dailyStats.realizedPnL += netPnLData.netPnL; // Use net PnL
+    
+    // === 🔧 SATIŞ SONRASI DENGELEME ===
+    // Satıştan sonra kalan küçük BTC varsa PnL'den düş
+    try {
+      const balances = await exchange.getAllBaseBalances();
+      const btc = balances['BTC'] || 0;
+      if (btc > 0 && btc < 0.00002) {
+        const ticker = await exchange.fetchTicker('BTC/CAD');
+        const unrealizedLoss = btc * ticker.last;
+        botState.dailyStats.realizedPnL -= unrealizedLoss;
+        log(`⚖️ PnL düzeltildi (kalan ${btc.toFixed(8)} BTC): -${unrealizedLoss.toFixed(2)} CAD`, 'WARN');
+        await telegram.sendMessage(`⚖️ PnL düzeltildi (kalan ${btc.toFixed(8)} BTC): -${unrealizedLoss.toFixed(2)} CAD`);
+      }
+    } catch (balanceError) {
+      log(`⚠️ Error checking post-sale balance: ${balanceError.message}`, 'WARN');
+    }
     
     // Update bot state
     botState.openPositions.delete(symbol);

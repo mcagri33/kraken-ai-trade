@@ -475,26 +475,35 @@ export function createPosition(signal, qty, stopLoss, takeProfit, symbol) {
 }
 
 /**
- * Calculate trade PnL
+ * Calculate trade PnL with fee-aware logic
  * @param {Object} position - Position object
  * @param {number} exitPrice - Exit price
- * @returns {Object} {pnl, pnl_pct}
+ * @returns {Object} {pnl, pnl_pct, grossPnL, netPnL, totalFees}
  */
 export function calculatePnL(position, exitPrice) {
-  let pnl, pnl_pct;
-
-  if (position.side === 'BUY') {
-    pnl = (exitPrice - position.entry_price) * position.qty;
-    pnl_pct = ((exitPrice - position.entry_price) / position.entry_price) * 100;
-  } else {
-    // For SELL/SHORT (not used in spot, but kept for completeness)
-    pnl = (position.entry_price - exitPrice) * position.qty;
-    pnl_pct = ((position.entry_price - exitPrice) / position.entry_price) * 100;
-  }
+  const grossExitValue = position.qty * exitPrice;
+  const entryCost = position.qty * position.entry_price;
+  const entryFee = position.entry_fee || 0;
+  const exitFee = position.exit_fee || 0;
+  
+  // Fee-aware net calculations
+  const grossPnL = grossExitValue - entryCost;
+  const totalFees = entryFee + exitFee;
+  let netPnL = grossPnL - totalFees;
+  let netPnLPct = entryCost > 0 ? (netPnL / entryCost) * 100 : 0;
+  
+  // PnL rounding: küçük oynaklıkları sıfırla (spam log önleme)
+  if (Math.abs(netPnL) < 0.001) netPnL = 0;
+  if (Math.abs(netPnLPct) < 0.01) netPnLPct = 0;
 
   return {
-    pnl: parseFloat(pnl.toFixed(8)),
-    pnl_pct: parseFloat(pnl_pct.toFixed(4))
+    pnl: parseFloat(netPnL.toFixed(2)), // Net PnL for backward compatibility
+    pnl_pct: parseFloat(netPnLPct.toFixed(2)),
+    grossPnL: parseFloat(grossPnL.toFixed(2)),
+    netPnL: parseFloat(netPnL.toFixed(2)),
+    totalFees: parseFloat(totalFees.toFixed(4)),
+    grossExitValue: parseFloat(grossExitValue.toFixed(2)),
+    entryCost: parseFloat(entryCost.toFixed(2))
   };
 }
 

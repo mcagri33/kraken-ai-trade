@@ -692,6 +692,46 @@ export async function getFeeRates() {
 }
 
 /**
+ * Convert small amounts of crypto to CAD (dust cleanup)
+ * @param {string} fromCurrency - Source currency (e.g., 'BTC')
+ * @param {string} toCurrency - Target currency (e.g., 'CAD')
+ * @returns {Promise<Object|null>} Conversion result or null if not supported
+ */
+export async function convert(fromCurrency, toCurrency) {
+  try {
+    // Kraken doesn't have a direct convert API, so we'll use market sell
+    const symbol = `${fromCurrency}/${toCurrency}`;
+    
+    // Get current balance
+    const balance = await getBalance(fromCurrency);
+    if (balance.total <= 0) {
+      return null;
+    }
+    
+    // Get current price
+    const ticker = await fetchTicker(symbol);
+    const cadValue = balance.total * ticker.last;
+    
+    // Only convert if it's dust (< 0.50 CAD)
+    if (cadValue < 0.50) {
+      // Execute market sell
+      const order = await marketSell(symbol, balance.total);
+      
+      return {
+        amount: balance.total,
+        cost: cadValue,
+        order: order
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    log(`Error converting ${fromCurrency} to ${toCurrency}: ${error.message}`, 'WARN');
+    return null;
+  }
+}
+
+/**
  * Check if we have any open positions (non-CAD balances > dust)
  * @param {number} dustThreshold - Minimum value in CAD to consider (default 1 CAD)
  * @returns {Promise<boolean>} True if has position
