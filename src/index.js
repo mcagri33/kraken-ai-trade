@@ -592,8 +592,8 @@ async function mainLoop() {
       // Check if we need to run AI optimization
       await checkAndRunOptimization();
       
-      // Check if we need to send market summary (every 10 minutes)
-      await checkAndSendMarketSummary();
+      // Check if we need to send market summary (DISABLED - No more spam)
+      // await checkAndSendMarketSummary();
       
       // Single position rule: check if we have any crypto holdings
       const hasPosition = await exchange.hasOpenPosition(1.0);
@@ -912,6 +912,17 @@ async function handleBuySignal(symbol, signal) {
     // Notify
     await telegram.notifyTrade('BUY', position);
     
+    // Send explain message
+    await sendExplainMessage("BUY", symbol, {
+      rsi: signal.indicators.rsi,
+      ema20: signal.indicators.ema20,
+      ema50: signal.indicators.ema50,
+      atrPct: signal.indicators.atrPct,
+      entryPrice: actualPrice,
+      confidence: signal.confidence,
+      reason: "RSI oversold + bullish trend"
+    });
+    
     log(`✅ Position opened: ${symbol} ID=${tradeId} (Fee-aware: ${netTradeValue.toFixed(2)} CAD net)`, 'SUCCESS');
     
   } catch (error) {
@@ -1050,6 +1061,20 @@ async function closePosition(symbol, exitPrice, reason) {
       total_fees: netPnLData.totalFees
     });
     
+    // Send explain message
+    const messageType = netPnLData.netPnL < 0 ? "LOSS" : "SELL";
+    await sendExplainMessage(messageType, symbol, {
+      rsi: 0, // Will be updated with current RSI if available
+      ema20: 0,
+      ema50: 0,
+      atrPct: 0,
+      entryPrice: position.entry_price,
+      exitPrice: actualExitPrice,
+      pnl: netPnLData.netPnL,
+      confidence: position.ai_confidence,
+      reason: reason
+    });
+    
     log(`✅ Position closed: ${symbol} Net PnL=${netPnLData.netPnL.toFixed(2)} CAD (${netPnLData.netPnLPct.toFixed(2)}%)`, 
         netPnLData.netPnL > 0 ? 'SUCCESS' : 'WARN');
     
@@ -1110,7 +1135,67 @@ async function notifyExtremeRSI(symbol, signal) {
 }
 
 /**
- * Check and send market summary (every 10 minutes)
+ * Send explain message for trade actions
+ * @param {string} type - BUY, SELL, or LOSS
+ * @param {string} symbol - Trading symbol
+ * @param {Object} data - Trade data and indicators
+ */
+async function sendExplainMessage(type, symbol, data) {
+  const { rsi, ema20, ema50, atrPct, pnl, reason, confidence, entryPrice, exitPrice } = data;
+  let message = "";
+
+  if (type === "BUY") {
+    message = `
+🟢 *BUY EXECUTED* (${symbol})
+Price: ${entryPrice.toFixed(2)} CAD
+Confidence: ${(confidence * 100).toFixed(1)}%
+
+📊 *Reason:*
+RSI (${rsi.toFixed(1)}) → Oversold
+EMA20 (${ema20.toFixed(2)}) > EMA50 (${ema50.toFixed(2)}) → Bullish trend
+ATR = ${(atrPct * 100).toFixed(2)}% → Normal volatility
+
+🤖 *Decision:*
+AI, düşük RSI ve yükselen trend kombinasyonu nedeniyle alım yaptı.
+    `;
+  } else if (type === "SELL") {
+    const pnlPct = entryPrice > 0 ? ((pnl / entryPrice) * 100) : 0;
+    message = `
+🔴 *SELL EXECUTED* (${symbol})
+Entry: ${entryPrice.toFixed(2)} → Exit: ${exitPrice.toFixed(2)}
+PnL: ${pnl.toFixed(2)} CAD (${pnlPct.toFixed(2)}%)
+
+📊 *Reason:*
+RSI (${rsi.toFixed(1)}) → ${rsi > 65 ? 'Overbought' : 'Normal'}
+Trend momentum zayıfladı (EMA20 < EMA50)
+
+🤖 *Decision:*
+Kâr alımı yapıldı — momentum zayıfladığı için pozisyon kapatıldı.
+    `;
+  } else if (type === "LOSS") {
+    message = `
+⚠️ *TRADE CLOSED — LOSS*
+
+PnL: ${pnl.toFixed(2)} CAD
+
+📊 *Reason:*
+EMA kırıldı, RSI toparlanamadı (${rsi.toFixed(1)}).  
+Stop-loss tetiklendi, fiyat momentum kaybetti.
+
+🤖 *Adjustment:*
+AI, sonraki optimizasyonda RSI ağırlığını %1 azaltacak.
+    `;
+  }
+
+  try {
+    await telegram.sendMessage(message, { parse_mode: "Markdown" });
+  } catch (err) {
+    log(`Telegram explain message failed: ${err.message}`, 'ERROR');
+  }
+}
+
+/**
+ * Check and send market summary (DISABLED - No more spam)
  */
 async function checkAndSendMarketSummary() {
   const now = Date.now();
