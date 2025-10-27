@@ -518,6 +518,7 @@ async function checkDayReset() {
     // === 🔧 GÜNLÜK ORPHANED POSITIONS CLEANUP ===
     // Gün sonunda orphaned pozisyonları otomatik temizle
     await autoSyncOrphanedPositions();
+    await autoCleanDust();
     
     // === 🔧 GÜN SONU DENGELEME ===
     // Gün sonunda kalan BTC varsa değerini hesaplayıp günlük PnL'ye yansıt
@@ -676,17 +677,18 @@ async function manageOpenPositions() {
   // Auto-sync orphaned BTC positions (always enabled for BTC recovery)
   await autoSyncOrphanedPositions();
   
-  // Safety check: if Map is empty but we have crypto, reload from DB
+  // Safety check: if Map is empty but we have crypto, check for dust vs real orphaned balance
   if (botState.openPositions.size === 0) {
-    log('⚠️  Position map empty but crypto detected, reloading from database...', 'WARN');
-    await restoreOpenPositions();
-    
-    // If still empty after reload, something is wrong
-    if (botState.openPositions.size === 0) {
-      log('⚠️  No positions in database but crypto in wallet - possible orphaned balance', 'WARN');
-      await telegram.notifyError('Orphaned crypto detected in wallet without database record');
+    const balances = await exchange.getAllBaseBalances();
+    const btc = balances['BTC'] || 0;
+    if (btc > 0 && btc < 0.00002) {
+      log(`⚠️ Detected small BTC dust: ${btc.toFixed(8)} BTC (<0.00002), skipping orphan warning`, 'WARN');
       return;
+    } else if (btc >= 0.00002) {
+      log(`⚠️ Real orphaned balance detected: ${btc.toFixed(8)} BTC`, 'WARN');
+      await autoSyncOrphanedPositions();
     }
+    return;
   }
   
   for (const [symbol, position] of botState.openPositions) {
@@ -1015,16 +1017,18 @@ async function closePosition(symbol, exitPrice, reason) {
     botState.dailyStats.realizedPnL += netPnLData.netPnL; // Use net PnL
     
     // === 🔧 SATIŞ SONRASI DENGELEME ===
-    // Satıştan sonra kalan küçük BTC varsa PnL'den düş
+    // Satıştan sonra kalan BTC varsa PnL'den düş (0.00002 üzeri için)
     try {
       const balances = await exchange.getAllBaseBalances();
       const btc = balances['BTC'] || 0;
-      if (btc > 0 && btc < 0.00002) {
+      if (btc > 0.00002) {
         const ticker = await exchange.fetchTicker('BTC/CAD');
         const unrealizedLoss = btc * ticker.last;
         botState.dailyStats.realizedPnL -= unrealizedLoss;
         log(`⚖️ PnL düzeltildi (kalan ${btc.toFixed(8)} BTC): -${unrealizedLoss.toFixed(2)} CAD`, 'WARN');
         await telegram.sendMessage(`⚖️ PnL düzeltildi (kalan ${btc.toFixed(8)} BTC): -${unrealizedLoss.toFixed(2)} CAD`);
+      } else if (btc > 0 && btc <= 0.00002) {
+        log(`⚠️ Small BTC dust remaining: ${btc.toFixed(8)} BTC (≤0.00002), no PnL adjustment needed`, 'INFO');
       }
     } catch (balanceError) {
       log(`⚠️ Error checking post-sale balance: ${balanceError.message}`, 'WARN');
