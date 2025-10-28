@@ -30,11 +30,11 @@
 - 12 saatte bir otomatik çalışır
 - Tüm base currency'leri kontrol eder
 - 2 CAD altındaki dust'ları CAD'e çevirir
-- **4-Katmanlı Convert Sistemi:**
-  1. Kraken Convert API (`privatePostConvert`)
+- **4-Katmanlı Convert Sistemi (Optimized):**
+  1. ConvertTrade API (`privatePostConvertTrade`) - Primary method
   2. Trade Convert API (`privatePostTrade` with `convert: true`)
-  3. ConvertTrade API (`privatePostConvertTrade`)
-  4. Regular Market Sell (fallback)
+  3. Convert API (`privatePostConvert`) - Fallback
+  4. Regular Market Sell (final fallback)
 - Detaylı rapor ve istatistik gönderir
 
 #### 4️⃣ **Orphaned Positions Cleanup**

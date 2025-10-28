@@ -22,10 +22,22 @@ const TIME_EXIT_CANDLES = 45;
  * @returns {Object} Indicators object
  */
 export function calculateIndicators(ohlcv) {
+  // Input validation
+  if (!ohlcv || !Array.isArray(ohlcv) || ohlcv.length < 50) {
+    log('Invalid OHLCV data: insufficient data or not an array', 'ERROR');
+    return null;
+  }
+  
   const closes = ohlcv.map(candle => candle.close);
   const volumes = ohlcv.map(candle => candle.volume);
   
-  // Calculate indicators
+  // Validate closes and volumes
+  if (closes.some(close => !close || isNaN(close)) || volumes.some(vol => !vol || isNaN(vol))) {
+    log('Invalid OHLCV data: contains null/NaN values', 'ERROR');
+    return null;
+  }
+  
+  // Calculate indicators with null checks
   const rsi = calculateRSI(closes, 14);
   const ema20 = calculateEMA(closes, 20);
   const ema50 = calculateEMA(closes, 50);
@@ -33,6 +45,12 @@ export function calculateIndicators(ohlcv) {
   const atr = calculateATR(ohlcv, 14);
   const atrPct = calculateATRPercent(ohlcv, 14);
   const volZScore = calculateZScore(volumes, 20);
+  
+  // Validate calculated indicators
+  if (!rsi || !ema20 || !ema50 || !atr || !atrPct || !volZScore) {
+    log('Indicator calculation failed: one or more indicators returned null', 'ERROR');
+    return null;
+  }
   
   // Calculate ATR series for averaging (last 10 candles)
   const atrSeries = [];
@@ -92,7 +110,7 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
   // Closed candle price for signal confirmation
   const closedPrice = closes[closes.length - 2];
 
-  // Calculate indicators using closed candle data
+  // Calculate indicators using closed candle data with validation
   const ema20 = calculateEMA(closesForSignal, params.EMA_FAST);
   const ema50 = calculateEMA(closesForSignal, params.EMA_SLOW);
   const ema200 = calculateEMA(closesForSignal, params.EMA_REGIME);
@@ -101,15 +119,16 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
   const atr = calculateATR(ohlcvForSignal, 14);
   const volZScore = calculateZScore(volumesForSignal, 20);
 
-  // Debug: Always log indicator values
-  log(`    📊 Indicators: RSI=${rsi?.toFixed(1)}, EMA20=${ema20?.toFixed(2)}, EMA50=${ema50?.toFixed(2)}, ` +
-      `ATR=${atrPct?.toFixed(2)}%, VolZ=${volZScore?.toFixed(2)}`, 'DEBUG');
-
+  // Validate all indicators before proceeding
   if (ema20 === null || ema50 === null || ema200 === null || 
       rsi === null || atrPct === null || volZScore === null || atr === null) {
-    log('Indicator calculation returned null', 'WARN');
+    log('Indicator calculation returned null - insufficient data or calculation error', 'ERROR');
     return null;
   }
+
+  // Debug: Always log indicator values
+  log(`    📊 Indicators: RSI=${rsi.toFixed(1)}, EMA20=${ema20.toFixed(2)}, EMA50=${ema50.toFixed(2)}, ` +
+      `ATR=${atrPct.toFixed(2)}%, VolZ=${volZScore.toFixed(2)}`, 'DEBUG');
 
   // Regime filter: Skip EMA filter for extreme oversold (RSI < 30)
   // Rationale: When RSI is extremely low, it's a strong buy signal regardless of trend
