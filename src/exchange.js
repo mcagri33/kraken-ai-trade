@@ -726,43 +726,78 @@ export async function convert(fromCurrency, toCurrency) {
     
     // Try Kraken's Convert API first (bypasses minimum limits)
     try {
-      // Method 1: Try Kraken's convert endpoint directly
+      // Method 1: Kraken'ın Convert endpoint'i
       const convertResult = await retryExchangeCall(async () => {
-        return await exchange.convertCurrency(fromCurrency, toCurrency, balance.total);
+        return await exchange.privatePostConvert({
+          pair: symbol,
+          amount: balance.total.toString(),
+          from: fromCurrency,
+          to: toCurrency
+        });
       });
       
-      if (convertResult) {
-        log(`✅ Convert API success: ${balance.total.toFixed(8)} ${fromCurrency} → ${convertResult.cost.toFixed(2)} ${toCurrency}`, 'SUCCESS');
+      if (convertResult && convertResult.result) {
+        const convertedAmount = parseFloat(convertResult.result.converted);
+        log(`✅ Convert API success: ${balance.total.toFixed(8)} ${fromCurrency} → ${convertedAmount.toFixed(2)} ${toCurrency}`, 'SUCCESS');
         return {
           amount: balance.total,
-          cost: convertResult.cost,
+          cost: convertedAmount,
           order: convertResult
         };
       }
     } catch (convertError) {
-      log(`⚠️ Convert API failed: ${convertError.message}`, 'WARN');
+      log(`⚠️ Convert endpoint failed: ${convertError.message}`, 'WARN');
     }
     
-    // Method 2: Try market sell with convert parameter
+    // Method 2: Kraken'ın Trade endpoint'i ile convert
     try {
-      const order = await retryExchangeCall(async () => {
-        return await exchange.createOrder(symbol, 'market', 'sell', balance.total, null, {
-          convert: true  // Kraken convert parameter
+      const tradeResult = await retryExchangeCall(async () => {
+        return await exchange.privatePostTrade({
+          pair: symbol,
+          type: 'sell',
+          ordertype: 'market',
+          volume: balance.total.toString(),
+          convert: true
         });
       });
       
-      log(`✅ Market sell with convert success: ${balance.total.toFixed(8)} ${fromCurrency} → ${order.cost.toFixed(2)} ${toCurrency}`, 'SUCCESS');
-      return {
-        amount: balance.total,
-        cost: order.cost,
-        order: order
-      };
-      
-    } catch (convertOrderError) {
-      log(`⚠️ Market sell with convert failed: ${convertOrderError.message}`, 'WARN');
+      if (tradeResult && tradeResult.result) {
+        const cost = parseFloat(tradeResult.result.cost);
+        log(`✅ Trade convert success: ${balance.total.toFixed(8)} ${fromCurrency} → ${cost.toFixed(2)} ${toCurrency}`, 'SUCCESS');
+        return {
+          amount: balance.total,
+          cost: cost,
+          order: tradeResult
+        };
+      }
+    } catch (tradeError) {
+      log(`⚠️ Trade convert failed: ${tradeError.message}`, 'WARN');
     }
     
-    // Method 3: Fallback to regular market sell (may fail due to minimum)
+    // Method 3: Kraken'ın ConvertTrade endpoint'i
+    try {
+      const convertTradeResult = await retryExchangeCall(async () => {
+        return await exchange.privatePostConvertTrade({
+          pair: symbol,
+          type: 'sell',
+          volume: balance.total.toString()
+        });
+      });
+      
+      if (convertTradeResult && convertTradeResult.result) {
+        const cost = parseFloat(convertTradeResult.result.cost);
+        log(`✅ ConvertTrade success: ${balance.total.toFixed(8)} ${fromCurrency} → ${cost.toFixed(2)} ${toCurrency}`, 'SUCCESS');
+        return {
+          amount: balance.total,
+          cost: cost,
+          order: convertTradeResult
+        };
+      }
+    } catch (convertTradeError) {
+      log(`⚠️ ConvertTrade failed: ${convertTradeError.message}`, 'WARN');
+    }
+    
+    // Method 4: Fallback to regular market sell (may fail due to minimum)
     try {
       const order = await marketSell(symbol, balance.total);
       
