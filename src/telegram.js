@@ -10,8 +10,8 @@ import * as ai from './ai.js';
 
 // Authorization function
 function isAuthorized(userId) {
-  const allowed = process.env.TG_ALLOWED_USER_IDS
-    ? process.env.TG_ALLOWED_USER_IDS.split(',').map(x => x.trim())
+  const allowed = process.env.TELEGRAM_ALLOWED_USERS
+    ? process.env.TELEGRAM_ALLOWED_USERS.split(',').map(x => x.trim())
     : [];
   return allowed.includes(String(userId));
 }

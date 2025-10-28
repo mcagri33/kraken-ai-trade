@@ -153,12 +153,26 @@ class StateManager {
     const dailyTrades = symbolState.dailyTrades || 0;
     const dailyPnL = symbolState.dailyPnL || 0;
     
-    return (
+    // Debug logging
+    console.log(`🔍 Trading check for ${symbol}:`, {
+      tradingEnabled: this.state.tradingEnabled,
+      dryRun: this.state.dryRun,
+      dailyTrades,
+      maxDailyTrades: this.state.currentParams?.MAX_DAILY_TRADES || 10,
+      dailyPnL,
+      maxDailyLoss: this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40,
+      symbolState: symbolState
+    });
+    
+    const result = (
       this.state.tradingEnabled &&
       !this.state.dryRun &&
       dailyTrades < (this.state.currentParams?.MAX_DAILY_TRADES || 10) &&
       dailyPnL > (this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40)
     );
+    
+    console.log(`✅ Trading allowed for ${symbol}: ${result}`);
+    return result;
   }
 
   /**
