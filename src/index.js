@@ -386,6 +386,9 @@ async function initialize() {
     // Initialize balance tracking
     await initializeBalanceTracking();
     
+    // Check and migrate missing balance_before values
+    await checkAndMigrateBalanceData();
+    
     // Restore open positions from database
     await restoreOpenPositions();
     
@@ -513,6 +516,49 @@ async function recordTrade(tradeData) {
   } catch (error) {
     log(`❌ Error recording trade: ${error.message}`, 'ERROR');
     throw error;
+  }
+}
+
+/**
+ * Check and migrate missing balance data
+ */
+async function checkAndMigrateBalanceData() {
+  try {
+    log('🔍 Checking for missing balance data...', 'INFO');
+    
+    // Get migration statistics
+    const stats = await db.getMigrationStats();
+    
+    log(`📊 Balance data stats: ${stats.tradesWithBalanceBefore}/${stats.totalTrades} trades have balance_before`, 'INFO');
+    
+    if (stats.migrationNeeded) {
+      log(`🔄 Migration needed: ${stats.tradesMissingBalanceBefore} trades missing balance_before`, 'WARN');
+      
+      // Perform migration
+      const result = await db.migrateMissingBalanceBefore();
+      
+      if (result.updated > 0) {
+        log(`✅ Migration completed: ${result.updated} trades updated`, 'SUCCESS');
+        
+        // Send Telegram notification
+        await telegram.sendMessage(
+          `🔄 *Balance Migration Completed*\n\n` +
+          `Updated: ${result.updated} trades\n` +
+          `Skipped: ${result.skipped} trades\n` +
+          `Errors: ${result.errors} trades\n\n` +
+          `Historical balance data has been restored.`,
+          { parse_mode: 'Markdown' }
+        );
+      } else {
+        log(`⚠️ No trades were updated during migration`, 'WARN');
+      }
+    } else {
+      log(`✅ All trades have balance data, no migration needed`, 'SUCCESS');
+    }
+    
+  } catch (error) {
+    log(`❌ Error during balance migration check: ${error.message}`, 'ERROR');
+    // Don't throw error - migration failure shouldn't stop bot initialization
   }
 }
 

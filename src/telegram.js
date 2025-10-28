@@ -74,6 +74,7 @@ async function setupBotCommands() {
       { command: 'status', description: '📊 Pozisyon ve bakiye durumu' },
       { command: 'daily', description: '📅 Günlük performans raporu' },
       { command: 'ai_status', description: '🧠 AI parametreleri ve ağırlıklar' },
+      { command: 'migration', description: '🔄 Balance migration istatistikleri' },
       { command: 'optimize', description: '⚙️ Manuel AI optimizasyonu' },
       { command: 'flat', description: '🚨 Acil pozisyon kapatma' },
       { command: 'help', description: '❓ Yardım menüsü' }
@@ -236,6 +237,38 @@ Hoş geldiniz! Bot aktif ve çalışıyor.
     try {
       const aiStatus = await getAIStatusMessage();
       bot.sendMessage(msg.chat.id, aiStatus, { parse_mode: 'Markdown' });
+    } catch (error) {
+      bot.sendMessage(msg.chat.id, `Error: ${error.message}`);
+    }
+  });
+
+  // /migration - Get balance migration statistics
+  bot.onText(/\/migration/, async (msg) => {
+    if (!isAuthorized(msg.from.id)) {
+      bot.sendMessage(msg.chat.id, '⛔ Unauthorized');
+      return;
+    }
+    try {
+      const stats = await db.getMigrationStats();
+      
+      const message = `
+🔄 *Balance Migration Statistics*
+
+📊 *Data Coverage:*
+Total Trades: ${stats.totalTrades}
+With Balance Before: ${stats.tradesWithBalanceBefore}
+Missing Balance Before: ${stats.tradesMissingBalanceBefore}
+With Balance After: ${stats.tradesWithBalanceAfter}
+Missing Balance After: ${stats.tradesMissingBalanceAfter}
+
+${stats.migrationNeeded ? '⚠️ *Migration Needed*' : '✅ *All Data Complete*'}
+
+${stats.migrationNeeded ? 
+  'Run bot restart to trigger automatic migration.' : 
+  'All historical trades have complete balance data.'}
+      `.trim();
+      
+      bot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
     } catch (error) {
       bot.sendMessage(msg.chat.id, `Error: ${error.message}`);
     }

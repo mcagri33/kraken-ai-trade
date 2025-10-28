@@ -466,3 +466,160 @@ export async function getWeightsHistory(limit = 10) {
   return rows;
 }
 
+/**
+ * Migrate missing balance_before values in historical trades
+ * This function fills missing balance_before values by calculating backwards from the last known balance
+ * @returns {Promise<Object>} Migration results
+ */
+export async function migrateMissingBalanceBefore() {
+  try {
+    log('🔄 Starting balance_before migration for historical trades...', 'INFO');
+    
+    // Get all trades ordered by opened_at (oldest first)
+    const query = `
+      SELECT id, symbol, side, qty, entry_price, exit_price, entry_fee, exit_fee, 
+             opened_at, closed_at, pnl_net, net_balance_change
+      FROM trades 
+      WHERE closed_at IS NOT NULL
+      ORDER BY opened_at ASC
+    `;
+    const [trades] = await pool.execute(query);
+    
+    if (trades.length === 0) {
+      log('📊 No historical trades found for migration', 'INFO');
+      return { updated: 0, skipped: 0, errors: 0 };
+    }
+    
+    // Get the most recent trade with valid balance data
+    const lastValidQuery = `
+      SELECT balance_after, closed_at
+      FROM trades 
+      WHERE balance_after IS NOT NULL AND balance_after > 0
+      ORDER BY closed_at DESC 
+      LIMIT 1
+    `;
+    const [lastValidRows] = await pool.execute(lastValidQuery);
+    
+    if (lastValidRows.length === 0) {
+      log('⚠️ No valid balance_after found, cannot perform migration', 'WARN');
+      return { updated: 0, skipped: 0, errors: 0 };
+    }
+    
+    const lastValidBalance = parseFloat(lastValidRows[0].balance_after);
+    const lastValidDate = new Date(lastValidRows[0].closed_at);
+    
+    log(`💰 Last valid balance: ${lastValidBalance.toFixed(2)} CAD (${lastValidDate.toISOString()})`, 'INFO');
+    
+    // Calculate balance backwards from the last known balance
+    let currentBalance = lastValidBalance;
+    let updatedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+    
+    // Process trades in reverse chronological order (newest to oldest)
+    const reversedTrades = [...trades].reverse();
+    
+    for (const trade of reversedTrades) {
+      try {
+        // Skip if balance_before already exists
+        const checkQuery = `SELECT balance_before FROM trades WHERE id = ?`;
+        const [checkRows] = await pool.execute(checkQuery, [trade.id]);
+        
+        if (checkRows.length > 0 && checkRows[0].balance_before !== null) {
+          skippedCount++;
+          continue;
+        }
+        
+        // Calculate balance_before by subtracting net_balance_change
+        let calculatedBalanceBefore = currentBalance;
+        
+        // If we have net_balance_change, use it; otherwise calculate from PnL
+        if (trade.net_balance_change !== null) {
+          calculatedBalanceBefore = currentBalance - parseFloat(trade.net_balance_change);
+        } else if (trade.pnl_net !== null) {
+          // Fallback: estimate from PnL (less accurate)
+          calculatedBalanceBefore = currentBalance - parseFloat(trade.pnl_net);
+        }
+        
+        // Ensure balance is not negative
+        calculatedBalanceBefore = Math.max(0, calculatedBalanceBefore);
+        
+        // Update the trade record
+        const updateQuery = `
+          UPDATE trades 
+          SET balance_before = ?, balance_after = ?
+          WHERE id = ?
+        `;
+        
+        const balanceAfter = currentBalance;
+        
+        await pool.execute(updateQuery, [
+          calculatedBalanceBefore,
+          balanceAfter,
+          trade.id
+        ]);
+        
+        log(`✅ Migrated trade ${trade.id}: balance_before=${calculatedBalanceBefore.toFixed(2)}, balance_after=${balanceAfter.toFixed(2)}`, 'DEBUG');
+        
+        // Update current balance for next iteration
+        currentBalance = calculatedBalanceBefore;
+        updatedCount++;
+        
+      } catch (error) {
+        log(`❌ Error migrating trade ${trade.id}: ${error.message}`, 'ERROR');
+        errorCount++;
+      }
+    }
+    
+    const result = {
+      updated: updatedCount,
+      skipped: skippedCount,
+      errors: errorCount,
+      total: trades.length
+    };
+    
+    log(`🎯 Migration completed: ${updatedCount} updated, ${skippedCount} skipped, ${errorCount} errors`, 'SUCCESS');
+    
+    return result;
+    
+  } catch (error) {
+    log(`❌ Migration failed: ${error.message}`, 'ERROR');
+    throw error;
+  }
+}
+
+/**
+ * Get migration statistics
+ * @returns {Promise<Object>} Migration statistics
+ */
+export async function getMigrationStats() {
+  try {
+    const query = `
+      SELECT 
+        COUNT(*) as total_trades,
+        COUNT(balance_before) as trades_with_balance_before,
+        COUNT(*) - COUNT(balance_before) as trades_missing_balance_before,
+        COUNT(balance_after) as trades_with_balance_after,
+        COUNT(*) - COUNT(balance_after) as trades_missing_balance_after
+      FROM trades 
+      WHERE closed_at IS NOT NULL
+    `;
+    
+    const [rows] = await pool.execute(query);
+    const stats = rows[0];
+    
+    return {
+      totalTrades: parseInt(stats.total_trades),
+      tradesWithBalanceBefore: parseInt(stats.trades_with_balance_before),
+      tradesMissingBalanceBefore: parseInt(stats.trades_missing_balance_before),
+      tradesWithBalanceAfter: parseInt(stats.trades_with_balance_after),
+      tradesMissingBalanceAfter: parseInt(stats.trades_missing_balance_after),
+      migrationNeeded: parseInt(stats.trades_missing_balance_before) > 0
+    };
+    
+  } catch (error) {
+    log(`Error getting migration stats: ${error.message}`, 'ERROR');
+    throw error;
+  }
+}
+
