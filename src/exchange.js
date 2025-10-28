@@ -5,6 +5,7 @@
 
 import ccxt from 'ccxt';
 import { log, sleep } from './utils.js';
+import { getState } from './stateManager.js';
 
 let exchange = null;
 let cachedCADMarkets = null;
@@ -147,6 +148,24 @@ export async function marketBuy(symbol, amount) {
       throw new Error(`Invalid buy amount: ${amount}`);
     }
     
+    // Check for dry-run mode
+    const botState = getState();
+    if (botState.dryRun) {
+      const ticker = await exchange.fetchTicker(symbol);
+      const price = ticker.last;
+      log(`[SIMULATION] BUY ${symbol} @ ${price.toFixed(2)} (dry-run mode)`, 'INFO');
+      return { 
+        id: `sim-buy-${Date.now()}`, 
+        status: 'simulated',
+        symbol: symbol,
+        side: 'buy',
+        amount: amount,
+        price: price,
+        filled: amount,
+        timestamp: Date.now()
+      };
+    }
+    
     log(`📥 Attempting to buy: ${amount} ${symbol}`, 'DEBUG');
     
     const order = await exchange.createMarketBuyOrder(symbol, amount);
@@ -170,6 +189,24 @@ export async function marketSell(symbol, amount) {
     if (!amount || amount <= 0 || isNaN(amount)) {
       log(`❌ Invalid amount parameter: ${amount}`, 'ERROR');
       throw new Error(`Invalid sell amount: ${amount}`);
+    }
+    
+    // Check for dry-run mode
+    const botState = getState();
+    if (botState.dryRun) {
+      const ticker = await exchange.fetchTicker(symbol);
+      const price = ticker.last;
+      log(`[SIMULATION] SELL ${symbol} @ ${price.toFixed(2)} (dry-run mode)`, 'INFO');
+      return { 
+        id: `sim-sell-${Date.now()}`, 
+        status: 'simulated',
+        symbol: symbol,
+        side: 'sell',
+        amount: amount,
+        price: price,
+        filled: amount,
+        timestamp: Date.now()
+      };
     }
     
     log(`📤 Attempting to sell: ${amount} ${symbol}`, 'DEBUG');

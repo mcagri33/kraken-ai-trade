@@ -463,7 +463,7 @@ async function initialize() {
       atrLowPct: botState.runtimeConfig?.atr_low_pct ?? 0.01
     };
     
-    botState.tradingEnabled = config.ENABLE_TRADING && !botState.dryRun;
+    botState.tradingEnabled = config.ENABLE_TRADING; // Dry-run'da da trading enabled olsun
     
     // Debug logging for trading status
     console.log('🔍 Trading Status Debug:', {
