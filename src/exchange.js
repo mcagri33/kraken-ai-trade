@@ -797,25 +797,36 @@ export async function convert(fromCurrency, toCurrency) {
       log(`⚠️ Convert endpoint failed: ${convertError.message}`, 'WARN');
     }
     
-    // Method 4: Fallback to regular market sell (may fail due to minimum)
+    // Method 4: Fallback to regular market sell (with minimum check)
     try {
-      const order = await marketSell(symbol, balance.total);
+      // Check minimum amount before attempting market sell
+      const marketInfo = await exchange.loadMarkets();
+      const market = marketInfo[symbol];
+      const minAmount = market.limits.amount.min;
       
-      log(`✅ Regular market sell success: ${balance.total.toFixed(8)} ${fromCurrency} → ${order.cost.toFixed(2)} ${toCurrency}`, 'SUCCESS');
-      return {
-        amount: balance.total,
-        cost: order.cost,
-        order: order
-      };
+      if (balance.total >= minAmount) {
+        const order = await marketSell(symbol, balance.total);
+        
+        log(`✅ Regular market sell success: ${balance.total.toFixed(8)} ${fromCurrency} → ${order.cost.toFixed(2)} ${toCurrency}`, 'SUCCESS');
+        return {
+          amount: balance.total,
+          cost: order.cost,
+          order: order
+        };
+      } else {
+        log(`⚠️ Amount ${balance.total.toFixed(8)} below minimum ${minAmount}, skipping regular sell`, 'WARN');
+      }
       
     } catch (marketSellError) {
-      log(`❌ All convert methods failed: ${marketSellError.message}`, 'ERROR');
-      
-      // Log the dust amount for manual cleanup
-      log(`💡 Manual cleanup needed: ${balance.total.toFixed(8)} ${fromCurrency} (${cadValue.toFixed(2)} CAD)`, 'WARN');
-      
-      return null;
+      log(`⚠️ Market sell failed: ${marketSellError.message}`, 'WARN');
     }
+
+    log(`❌ All convert methods failed for ${balance.total.toFixed(8)} ${fromCurrency}`, 'ERROR');
+    
+    // Log the dust amount for manual cleanup
+    log(`💡 Manual cleanup needed: ${balance.total.toFixed(8)} ${fromCurrency} (${cadValue.toFixed(2)} CAD)`, 'WARN');
+    
+    return null;
     
   } catch (error) {
     log(`Error converting ${fromCurrency} to ${toCurrency}: ${error.message}`, 'WARN');

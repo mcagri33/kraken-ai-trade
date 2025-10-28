@@ -215,7 +215,7 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
   const volumeStrong = volZScore >= params.VOL_Z_MIN;
 
   // Calculate individual scores (0-1)
-  const rsiScore = calculateRSIScore(rsi, params);
+  const rsiScore = calculateRSIScore(rsi, params.RSI_OVERSOLD, params.RSI_OVERBOUGHT);
   const emaScore = trendIsBullish ? 1 : 0;
   const atrScore = volatilityOK ? 1 : 0;
   const volScore = volumeStrong ? 1 : 0;
@@ -326,29 +326,6 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
   log(`    ➡️  Final action: ${signal.action || 'NONE'}`, 'DEBUG');
 
   return signal;
-}
-
-/**
- * Calculate RSI score (0-1)
- * Higher score for more oversold conditions
- * @param {number} rsi - RSI value
- * @param {Object} params - Strategy parameters
- * @returns {number} Score between 0 and 1
- */
-function calculateRSIScore(rsi, params) {
-  if (rsi <= params.RSI_OVERSOLD) {
-    // More oversold = higher score
-    return 1 - (rsi / params.RSI_OVERSOLD);
-  } else if (rsi >= params.RSI_OVERBOUGHT) {
-    // Overbought = low score
-    return 0;
-  } else {
-    // Neutral zone
-    const midpoint = (params.RSI_OVERSOLD + params.RSI_OVERBOUGHT) / 2;
-    const distance = Math.abs(rsi - midpoint);
-    const range = params.RSI_OVERBOUGHT - params.RSI_OVERSOLD;
-    return 1 - (distance / (range / 2));
-  }
 }
 
 /**
