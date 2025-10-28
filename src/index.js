@@ -666,16 +666,18 @@ async function restoreOpenPositions() {
 }
 
 /**
- * Dust auto-clean function (with throttling)
- * Automatically converts small BTC dust to CAD
+ * Enhanced Dust Cleaner Module
+ * Automatically converts small crypto dust to CAD every 12 hours
+ * Handles all base currencies, not just BTC
  */
 let lastDustCleanTime = 0;
-const DUST_CLEAN_INTERVAL = 10 * 60 * 1000; // 10 minutes
+const DUST_CLEAN_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
+const DUST_THRESHOLD_CAD = 1.0; // Convert if value < 1 CAD
 
 async function autoCleanDust() {
   const now = Date.now();
   
-  // Only run every 10 minutes
+  // Only run every 12 hours
   if (now - lastDustCleanTime < DUST_CLEAN_INTERVAL) {
     return;
   }
@@ -683,26 +685,60 @@ async function autoCleanDust() {
   lastDustCleanTime = now;
   
   try {
+    log('🧹 Running scheduled dust cleanup (12h)...', 'INFO');
+    
     const balances = await exchange.getAllBaseBalances();
-    const btc = balances['BTC'] || 0;
-    if (btc > 0 && btc < 0.00002) {
-      // Try to convert dust to CAD
-      try {
-        const result = await exchange.convert('BTC', 'CAD');
-        if (result) {
-          log(`🧹 Kalan ${result.amount.toFixed(8)} BTC otomatik satıldı → ${result.cost.toFixed(2)} CAD`, 'INFO');
-          await telegram.sendMessage(`🧹 Kalan ${result.amount.toFixed(8)} BTC otomatik satıldı → ${result.cost.toFixed(2)} CAD`);
+    let totalCleaned = 0;
+    let cleanedCurrencies = [];
+    
+    // Check all base currencies for dust
+    for (const [currency, balance] of Object.entries(balances)) {
+      if (balance.total > 0) {
+        try {
+          // Get CAD value of this currency
+          const symbol = `${currency}/CAD`;
+          const ticker = await exchange.fetchTicker(symbol);
+          const cadValue = balance.total * ticker.last;
+          
+          // If dust (< 1 CAD), try to convert
+          if (cadValue < DUST_THRESHOLD_CAD && cadValue > 0.01) { // Minimum 1 cent to avoid errors
+            log(`🧹 Converting dust: ${balance.total.toFixed(8)} ${currency} (${cadValue.toFixed(2)} CAD)`, 'INFO');
+            
+            try {
+              const result = await exchange.convert(currency, 'CAD');
+              if (result) {
+                totalCleaned += result.cost;
+                cleanedCurrencies.push(`${result.amount.toFixed(8)} ${currency} → ${result.cost.toFixed(2)} CAD`);
+                log(`✅ Dust converted: ${result.amount.toFixed(8)} ${currency} → ${result.cost.toFixed(2)} CAD`, 'SUCCESS');
+              }
+            } catch (convertError) {
+              log(`⚠️ Failed to convert ${currency} dust: ${convertError.message}`, 'WARN');
+            }
+          } else if (cadValue >= DUST_THRESHOLD_CAD) {
+            log(`💰 ${currency} balance too large for dust cleanup: ${balance.total.toFixed(8)} (${cadValue.toFixed(2)} CAD)`, 'DEBUG');
+          }
+        } catch (tickerError) {
+          log(`⚠️ Could not get ticker for ${currency}/CAD: ${tickerError.message}`, 'WARN');
         }
-      } catch (convertError) {
-        log(`⚠️ Dust conversion failed: ${convertError.message}`, 'WARN');
-        // Fallback: just log the dust amount
-        const ticker = await exchange.fetchTicker('BTC/CAD');
-        const dustValue = btc * ticker.last;
-        log(`⚠️ Dust detected but cannot convert: ${btc.toFixed(8)} BTC (${dustValue.toFixed(2)} CAD)`, 'WARN');
       }
     }
+    
+    // Send summary notification
+    if (cleanedCurrencies.length > 0) {
+      const message = `🧹 *Dust Cleanup Completed*\n\n` +
+        `Total converted: ${totalCleaned.toFixed(2)} CAD\n\n` +
+        `Converted:\n${cleanedCurrencies.join('\n')}\n\n` +
+        `_Scheduled cleanup every 12 hours_`;
+      
+      await telegram.sendMessage(message, { parse_mode: 'Markdown' });
+      log(`✅ Dust cleanup completed: ${cleanedCurrencies.length} currencies, ${totalCleaned.toFixed(2)} CAD total`, 'SUCCESS');
+    } else {
+      log(`✅ Dust cleanup completed: No dust found`, 'INFO');
+    }
+    
   } catch (err) {
-    log(`⚠️ Dust cleanup hatası: ${err.message}`, 'WARN');
+    log(`❌ Dust cleanup error: ${err.message}`, 'ERROR');
+    await telegram.notifyError(`Dust cleanup failed: ${err.message}`);
   }
 }
 
@@ -810,7 +846,7 @@ async function mainLoop() {
       // Check and update fee rates if needed (24 hours)
       await checkAndUpdateFeeRates();
       
-      // Auto-clean dust (every 10 minutes)
+      // Auto-clean dust (every 12 hours)
       await autoCleanDust();
       
       // Check if we need to run AI optimization
@@ -1227,10 +1263,16 @@ async function closePosition(symbol, exitPrice, reason) {
       return;
     }
     
-    // Execute market sell
+    // Execute market sell with fee-aware amount calculation
     let sellOrder;
     try {
-      sellOrder = await exchange.marketSell(symbol, position.qty);
+      // Fee-aware sell amount calculation
+      const feeRate = botState.feeRates?.taker || 0.0026; // %0.26 Kraken taker fee
+      const sellAmount = position.qty * (1 - feeRate); // Fee'yi düşerek satış miktarını hesapla
+      
+      log(`💰 Fee-aware sell: Original qty=${position.qty.toFixed(8)}, Fee rate=${(feeRate*100).toFixed(2)}%, Sell amount=${sellAmount.toFixed(8)}`, 'INFO');
+      
+      sellOrder = await exchange.marketSell(symbol, sellAmount);
       
       // 1 saniye gecikme - Kraken API'nin order settled cevabını tam alması için
       await sleep(1000);
@@ -1344,23 +1386,37 @@ async function closePosition(symbol, exitPrice, reason) {
     // AI weights will be updated by analyzeTradeAndOptimize() below
     // (Removed duplicate learning to prevent double weight updates)
     
-    // Update daily stats with REAL NET BALANCE CHANGE
+    // Update daily stats with CORRECTED NET BALANCE CHANGE (includes dust adjustment)
     botState.dailyStats.tradesCount++;
-    botState.dailyStats.realizedPnL += netBalanceChange; // Use real balance change, not calculated PnL
+    botState.dailyStats.realizedPnL += correctedPnL; // Use corrected PnL that includes dust adjustment
     
     // === 🔧 SATIŞ SONRASI DENGELEME ===
-    // Satıştan sonra kalan BTC varsa PnL'den düş (0.00002 üzeri için)
+    // Satıştan sonra kalan BTC varsa PnL'den düş (0.000001 üzeri için)
     try {
       const balances = await exchange.getAllBaseBalances();
       const btc = balances['BTC'] || 0;
-      if (btc > 0.00002) {
+      if (btc > 0.000001) {
         const ticker = await exchange.fetchTicker('BTC/CAD');
-        const unrealizedLoss = btc * ticker.last;
-        botState.dailyStats.realizedPnL -= unrealizedLoss;
-        log(`⚖️ PnL düzeltildi (kalan ${btc.toFixed(8)} BTC): -${unrealizedLoss.toFixed(2)} CAD`, 'WARN');
-        await telegram.sendMessage(`⚖️ PnL düzeltildi (kalan ${btc.toFixed(8)} BTC): -${unrealizedLoss.toFixed(2)} CAD`);
-      } else if (btc > 0 && btc <= 0.00002) {
-        log(`⚠️ Small BTC dust remaining: ${btc.toFixed(8)} BTC (≤0.00002), no PnL adjustment needed`, 'INFO');
+        const currentPrice = ticker.last;
+        const unrealizedLoss = btc * currentPrice;
+        
+        // PnL düzeltmesi: kalan BTC'nin değerini net PnL'den çıkar
+        correctedPnL -= unrealizedLoss;
+        netBalanceChange -= unrealizedLoss;
+        
+        log(`⚖️ PnL düzeltildi (kalan ${btc.toFixed(8)} BTC @ ${currentPrice.toFixed(2)}): -${unrealizedLoss.toFixed(2)} CAD`, 'WARN');
+        log(`💰 Final corrected PnL: ${correctedPnL.toFixed(2)} CAD (includes dust adjustment)`, 'INFO');
+        
+        await telegram.sendMessage(
+          `⚖️ *PnL Düzeltmesi*\n\n` +
+          `Kalan BTC: ${btc.toFixed(8)} BTC\n` +
+          `Fiyat: ${currentPrice.toFixed(2)} CAD\n` +
+          `Düzeltme: -${unrealizedLoss.toFixed(2)} CAD\n\n` +
+          `Final PnL: ${correctedPnL.toFixed(2)} CAD`,
+          { parse_mode: 'Markdown' }
+        );
+      } else if (btc > 0 && btc <= 0.000001) {
+        log(`⚠️ Tiny BTC dust remaining: ${btc.toFixed(8)} BTC (≤0.000001), no PnL adjustment needed`, 'INFO');
       }
     } catch (balanceError) {
       log(`⚠️ Error checking post-sale balance: ${balanceError.message}`, 'WARN');
@@ -1371,16 +1427,16 @@ async function closePosition(symbol, exitPrice, reason) {
     botState.lastTradeTime = new Date();
     botState.lastTradePnL = netPnLData.netPnL; // Use net PnL
     
-    // Notify with net PnL data and balance tracking
+    // Notify with corrected PnL data and balance tracking
     await telegram.notifyTradeClose({
       ...position,
       exit_price: actualExitPrice,
-      pnl: netBalanceChange, // Use real balance change
-      pnl_net: netBalanceChange, // Real net balance change
+      pnl: correctedPnL, // Use corrected PnL (includes dust adjustment)
+      pnl_net: correctedPnL, // Corrected net PnL
       pnl_pct: netPnLData.netPnLPct,
       balance_before: balanceBefore,
       balance_after: balanceAfter,
-      net_balance_change: netBalanceChange,
+      net_balance_change: correctedPnL, // Use corrected PnL
       exit_reason: reason,
       closed_at: new Date(),
       total_fees: netPnLData.totalFees
@@ -1389,7 +1445,7 @@ async function closePosition(symbol, exitPrice, reason) {
     // Self-Learning Analysis
     try {
       const learningResult = await ai.analyzeTradeAndOptimize({
-        pnl: netBalanceChange, // Use real balance change for AI learning
+        pnl: correctedPnL, // Use corrected PnL (includes dust adjustment) for AI learning
         entry_reason: 'AI_SIGNAL',
         exit_reason: reason,
         indicators: {
@@ -1406,7 +1462,7 @@ async function closePosition(symbol, exitPrice, reason) {
         
         // Send enhanced explain message with AI learning info
         await sendEnhancedExplainMessage(symbol, {
-          pnl: netBalanceChange, // Use real balance change
+          pnl: correctedPnL, // Use corrected PnL (includes dust adjustment)
           entryPrice: position.entry_price,
           exitPrice: actualExitPrice,
           reason: learningResult.reasonText,
@@ -1416,7 +1472,7 @@ async function closePosition(symbol, exitPrice, reason) {
         });
       } else {
         // Fallback to basic explain message
-        const messageType = netBalanceChange < 0 ? "LOSS" : "SELL";
+        const messageType = correctedPnL < 0 ? "LOSS" : "SELL";
         await sendExplainMessage(messageType, symbol, {
           rsi: 0,
           ema20: 0,
@@ -1424,7 +1480,7 @@ async function closePosition(symbol, exitPrice, reason) {
           atrPct: 0,
           entryPrice: position.entry_price,
           exitPrice: actualExitPrice,
-          pnl: netBalanceChange, // Use real balance change
+          pnl: correctedPnL, // Use corrected PnL (includes dust adjustment)
           confidence: position.ai_confidence,
           reason: reason
         });
@@ -1433,7 +1489,7 @@ async function closePosition(symbol, exitPrice, reason) {
       log(`Error in self-learning analysis: ${error.message}`, 'WARN');
       
       // Fallback to basic explain message
-      const messageType = netBalanceChange < 0 ? "LOSS" : "SELL";
+      const messageType = correctedPnL < 0 ? "LOSS" : "SELL";
       await sendExplainMessage(messageType, symbol, {
         rsi: 0,
         ema20: 0,
@@ -1441,14 +1497,14 @@ async function closePosition(symbol, exitPrice, reason) {
         atrPct: 0,
         entryPrice: position.entry_price,
         exitPrice: actualExitPrice,
-        pnl: netBalanceChange, // Use real balance change
+        pnl: correctedPnL, // Use corrected PnL (includes dust adjustment)
         confidence: position.ai_confidence,
         reason: reason
       });
     }
     
-    log(`✅ Position closed: ${symbol} Real Net Balance Change=${netBalanceChange.toFixed(2)} CAD`, 
-        netBalanceChange > 0 ? 'SUCCESS' : 'WARN');
+    log(`✅ Position closed: ${symbol} Corrected PnL=${correctedPnL.toFixed(2)} CAD (includes dust adjustment)`, 
+        correctedPnL > 0 ? 'SUCCESS' : 'WARN');
     
   } catch (error) {
     log(`Error closing position: ${error.message}`, 'ERROR');

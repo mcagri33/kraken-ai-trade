@@ -121,6 +121,7 @@ ATR Low PCT: 0.020 (Çok Konservatif)
 - `/status` - Genel bot durumu
 - `/positions` - Açık pozisyonlar
 - `/ai_status` - AI parametreleri ve adaptive mode
+- `/migration` - Balance migration istatistikleri
 - `/optimize` - Manuel AI optimizasyonu
 - `/flat` - Acil pozisyon kapatma
 - `/help` - Yardım menüsü
@@ -160,6 +161,56 @@ Mode: Low-Vol Scalper
 - **State Management:** Bot durumu korunması + fee rates
 - **Error Handling:** Hata durumlarında veri korunması
 - **Daily Cleanup:** Günlük otomatik temizlik kayıtları
+- **Balance Migration:** Eski trade kayıtlarında eksik balance_before değerlerini geriye dönük doldurma
+
+---
+
+## 🔄 Balance Migration System
+
+### 📊 Historical Data Recovery
+- **Automatic Detection:** Bot başlangıcında eksik balance_before değerlerini tespit eder
+- **Backward Calculation:** Son bilinen balance değerinden geriye doğru hesaplama
+- **Smart Algorithm:** net_balance_change veya pnl_net kullanarak balance_before hesaplar
+- **Data Integrity:** Mevcut verileri korur, sadece eksik olanları doldurur
+
+### 🎯 Migration Process
+```javascript
+// Migration Algorithm
+1. Son bilinen balance_after değerini bul
+2. Trade'leri ters kronolojik sırada işle (yeni → eski)
+3. Her trade için:
+   - balance_before = currentBalance - net_balance_change
+   - Negatif balance'ları 0'a çek
+   - Database'i güncelle
+4. İstatistikleri raporla
+```
+
+### 📱 Migration Commands
+- **`/migration`** - Migration istatistiklerini gösterir
+- **Auto Migration** - Bot başlangıcında otomatik çalışır
+- **Telegram Notifications** - Migration tamamlandığında bildirim
+
+### 📊 Migration Statistics Example
+```
+🔄 Balance Migration Statistics
+
+📊 Data Coverage:
+Total Trades: 25
+With Balance Before: 20
+Missing Balance Before: 5
+With Balance After: 25
+Missing Balance After: 0
+
+⚠️ Migration Needed
+
+Run bot restart to trigger automatic migration.
+```
+
+### ✅ Migration Benefits
+- **Data Consistency:** Tüm geçmiş trade'lerde tutarlı balance verisi
+- **PnL Accuracy:** Gerçek Kraken bakiyesi ile bot PnL'si eşleşmesi
+- **Historical Analysis:** Geçmiş performans analizi için tam veri
+- **Error Prevention:** "Bot thinks it's making profit but actually losing" sorununu çözer
 
 ---
 
@@ -338,6 +389,7 @@ RSI 0.41, EMA 0.31, ATR 0.14, VOL 0.14
 - **Real PnL:** Bot PnL = Gerçek Kraken bakiyesi
 - **No Spam:** Temiz Telegram feed, sadece önemli mesajlar
 - **Auto-Backup:** AI memory sistemi ile güvenli yedekleme
+- **Balance Migration:** Eski trade verilerinin otomatik düzeltilmesi
 
 ### 🚀 Performance
 - **Automated Trading:** 24/7 operation + auto cleanup
@@ -354,7 +406,7 @@ RSI 0.41, EMA 0.31, ATR 0.14, VOL 0.14
 ---
 
 ## 📝 Version Info
-- **Version:** 2.4 (Self-Learning Mode)
-- **Last Updated:** 2025-10-27
-- **Features:** AI Learning, Adaptive Parameters, Fee-Aware Trading, Orphaned Positions Auto-Cleanup, Dust Management, Real PnL System, Explain Mode, Self-Learning Mode
+- **Version:** 2.5 (Balance Migration System)
+- **Last Updated:** 2025-01-15
+- **Features:** AI Learning, Adaptive Parameters, Fee-Aware Trading, Orphaned Positions Auto-Cleanup, Dust Management, Real PnL System, Explain Mode, Self-Learning Mode, Balance Migration System
 - **Status:** Production Ready ✅
