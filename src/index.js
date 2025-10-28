@@ -21,6 +21,7 @@ let botState = {
   lastOptimizationTime: null,
   lastMarketSummaryTime: null,
   lastLoopTime: null, // Heartbeat monitoring
+  lastRecordedBalance: null, // Real wallet balance tracking
   recentSignals: [], // Son 10 sinyali sakla
   openPositions: new Map(), // symbol -> position
   tradingEnabled: true,
@@ -382,6 +383,9 @@ async function initialize() {
     // Initialize daily stats
     await initializeDailyStats();
     
+    // Initialize balance tracking
+    await initializeBalanceTracking();
+    
     // Restore open positions from database
     await restoreOpenPositions();
     
@@ -484,18 +488,36 @@ function loadConfig() {
 }
 
 /**
+ * Initialize balance tracking
+ */
+async function initializeBalanceTracking() {
+  try {
+    const balances = await exchange.getAllBaseBalances();
+    botState.lastRecordedBalance = balances['CAD'] || 0;
+    log(`💰 Initial balance tracking: ${botState.lastRecordedBalance.toFixed(2)} CAD`, 'INFO');
+  } catch (error) {
+    log(`⚠️ Error initializing balance tracking: ${error.message}`, 'WARN');
+    botState.lastRecordedBalance = null;
+  }
+}
+
+/**
  * Initialize daily stats
  */
 async function initializeDailyStats() {
   const today = getCurrentDate();
-  const todayPnL = await db.getTodayPnL();
+  
+  // Get today's PnL using net balance changes instead of calculated PnL
+  const todayPnL = await db.getTodayNetBalanceChange();
   const todayCount = await db.getTodayClosedTradesCount();
   
   botState.dailyStats = {
     date: today,
     tradesCount: todayCount,
-    realizedPnL: todayPnL
+    realizedPnL: todayPnL || 0 // Use net balance change, fallback to 0
   };
+  
+  log(`📊 Daily stats initialized: ${todayCount} trades, Real Net PnL: ${todayPnL?.toFixed(2) || '0.00'} CAD`, 'INFO');
 }
 
 /**
@@ -1141,15 +1163,62 @@ async function closePosition(symbol, exitPrice, reason) {
     
     log(`💰 Fee-aware exit: Gross PnL=${netPnLData.grossPnL.toFixed(2)}, Net PnL=${netPnLData.netPnL.toFixed(2)}, Total Fees=${netPnLData.totalFees.toFixed(2)}`, 'INFO');
     
+    // === 🔍 REAL WALLET BALANCE TRACKING ===
+    // Get current CAD balance after trade
+    let balanceAfter = null;
+    let netBalanceChange = 0;
+    let correctedPnL = netPnLData.netPnL;
+    
+    try {
+      const balances = await exchange.getAllBaseBalances();
+      balanceAfter = balances['CAD'] || 0;
+      
+      // Calculate net balance change
+      if (botState.lastRecordedBalance !== null) {
+        netBalanceChange = balanceAfter - botState.lastRecordedBalance;
+        
+        // Check for false profit reports
+        if (netBalanceChange < 0 && correctedPnL > 0) {
+          log(`⚠️ Correcting false profit report: Actual wallet decreased by ${netBalanceChange.toFixed(2)} CAD`, 'WARN');
+          correctedPnL = netBalanceChange;
+          
+          // Send correction notification
+          await telegram.sendMessage(
+            `⚠️ *PnL Düzeltmesi*\n\n` +
+            `Gerçek cüzdan bakiyesi azaldı.\n` +
+            `Hesaplanan PnL: ${netPnLData.netPnL.toFixed(2)} CAD\n` +
+            `Gerçek Değişim: ${netBalanceChange.toFixed(2)} CAD\n` +
+            `Düzeltilmiş PnL: ${correctedPnL.toFixed(2)} CAD`,
+            { parse_mode: 'Markdown' }
+          );
+        }
+        
+        // Update last recorded balance
+        botState.lastRecordedBalance = balanceAfter;
+        
+        log(`💰 Balance tracking: Before=${botState.lastRecordedBalance.toFixed(2)}, After=${balanceAfter.toFixed(2)}, Change=${netBalanceChange.toFixed(2)}`, 'INFO');
+      } else {
+        // First trade, record current balance
+        botState.lastRecordedBalance = balanceAfter;
+        log(`💰 Initial balance recorded: ${balanceAfter.toFixed(2)} CAD`, 'INFO');
+      }
+    } catch (balanceError) {
+      log(`⚠️ Error tracking balance: ${balanceError.message}`, 'WARN');
+    }
+    
     // Calculate candles held
     const candlesHeld = strategy.calculateCandlesElapsed(position.opened_at, 1);
     
-    // Update database with net PnL
+    // Update database with net PnL and balance tracking
     await db.updateTradeExit(position.id, {
       exit_price: actualExitPrice,
       exit_fee: exitFee,
       pnl: netPnLData.grossPnL, // Gross PnL for compatibility
       pnl_pct: netPnLData.netPnLPct, // Net PnL percentage
+      pnl_net: correctedPnL, // Corrected net PnL
+      balance_before: botState.lastRecordedBalance,
+      balance_after: balanceAfter,
+      net_balance_change: netBalanceChange,
       closed_at: new Date(),
       exit_reason: reason,
       candles_held: candlesHeld
@@ -1158,9 +1227,9 @@ async function closePosition(symbol, exitPrice, reason) {
     // AI weights will be updated by analyzeTradeAndOptimize() below
     // (Removed duplicate learning to prevent double weight updates)
     
-    // Update daily stats with NET PnL
+    // Update daily stats with CORRECTED NET PnL
     botState.dailyStats.tradesCount++;
-    botState.dailyStats.realizedPnL += netPnLData.netPnL; // Use net PnL
+    botState.dailyStats.realizedPnL += correctedPnL; // Use corrected PnL
     
     // === 🔧 SATIŞ SONRASI DENGELEME ===
     // Satıştan sonra kalan BTC varsa PnL'den düş (0.00002 üzeri için)
@@ -1199,7 +1268,7 @@ async function closePosition(symbol, exitPrice, reason) {
     // Self-Learning Analysis
     try {
       const learningResult = await ai.analyzeTradeAndOptimize({
-        pnl: netPnLData.netPnL,
+        pnl: correctedPnL, // Use corrected PnL for AI learning
         entry_reason: 'AI_SIGNAL',
         exit_reason: reason,
         indicators: {
@@ -1216,7 +1285,7 @@ async function closePosition(symbol, exitPrice, reason) {
         
         // Send enhanced explain message with AI learning info
         await sendEnhancedExplainMessage(symbol, {
-          pnl: netPnLData.netPnL,
+          pnl: correctedPnL, // Use corrected PnL
           entryPrice: position.entry_price,
           exitPrice: actualExitPrice,
           reason: learningResult.reasonText,
@@ -1226,7 +1295,7 @@ async function closePosition(symbol, exitPrice, reason) {
         });
       } else {
         // Fallback to basic explain message
-        const messageType = netPnLData.netPnL < 0 ? "LOSS" : "SELL";
+        const messageType = correctedPnL < 0 ? "LOSS" : "SELL";
         await sendExplainMessage(messageType, symbol, {
           rsi: 0,
           ema20: 0,
@@ -1234,7 +1303,7 @@ async function closePosition(symbol, exitPrice, reason) {
           atrPct: 0,
           entryPrice: position.entry_price,
           exitPrice: actualExitPrice,
-          pnl: netPnLData.netPnL,
+          pnl: correctedPnL, // Use corrected PnL
           confidence: position.ai_confidence,
           reason: reason
         });
@@ -1243,7 +1312,7 @@ async function closePosition(symbol, exitPrice, reason) {
       log(`Error in self-learning analysis: ${error.message}`, 'WARN');
       
       // Fallback to basic explain message
-      const messageType = netPnLData.netPnL < 0 ? "LOSS" : "SELL";
+      const messageType = correctedPnL < 0 ? "LOSS" : "SELL";
       await sendExplainMessage(messageType, symbol, {
         rsi: 0,
         ema20: 0,
@@ -1251,14 +1320,14 @@ async function closePosition(symbol, exitPrice, reason) {
         atrPct: 0,
         entryPrice: position.entry_price,
         exitPrice: actualExitPrice,
-        pnl: netPnLData.netPnL,
+        pnl: correctedPnL, // Use corrected PnL
         confidence: position.ai_confidence,
         reason: reason
       });
     }
     
-    log(`✅ Position closed: ${symbol} Net PnL=${netPnLData.netPnL.toFixed(2)} CAD (${netPnLData.netPnLPct.toFixed(2)}%)`, 
-        netPnLData.netPnL > 0 ? 'SUCCESS' : 'WARN');
+    log(`✅ Position closed: ${symbol} Corrected Net PnL=${correctedPnL.toFixed(2)} CAD`, 
+        correctedPnL > 0 ? 'SUCCESS' : 'WARN');
     
   } catch (error) {
     log(`Error closing position: ${error.message}`, 'ERROR');

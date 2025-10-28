@@ -204,6 +204,21 @@ export async function getTodayClosedTradesCount() {
 }
 
 /**
+ * Get today's total net balance change (real wallet changes)
+ * @returns {Promise<number>} Total net balance change for today
+ */
+export async function getTodayNetBalanceChange() {
+  const query = `
+    SELECT COALESCE(SUM(net_balance_change), 0) as total_balance_change 
+    FROM trades 
+    WHERE DATE(closed_at) = ? AND net_balance_change IS NOT NULL
+  `;
+  
+  const [rows] = await pool.execute(query, [getCurrentDate()]);
+  return parseFloat(rows[0].total_balance_change);
+}
+
+/**
  * Get today's total PnL
  * @returns {Promise<number>} Total PnL for today
  */

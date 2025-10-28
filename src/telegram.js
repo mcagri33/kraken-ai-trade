@@ -385,8 +385,8 @@ export async function notifyTradeClose(trade) {
   const emoji = isProfit ? '✅' : '❌';
   const pnlSign = trade.pnl >= 0 ? '+' : '';
   
-  // Tek satırda NetPnL gösterimi (sadeleştirilmiş)
-  const netPnLMessage = `Net PnL: ${pnlSign}${formatNumber(trade.pnl, 2)} CAD (${pnlSign}${formatNumber(trade.pnl_pct, 2)}%)`;
+  // Real Net PnL gösterimi (cüzdan bakiyesi bazlı)
+  const netPnLMessage = `📊 Gerçek Net Kâr/Zarar: ${pnlSign}${formatNumber(trade.pnl, 2)} CAD`;
   
   const message = `
 ${emoji} *Position Closed*
@@ -395,6 +395,7 @@ ${trade.symbol}
 Entry: ${formatNumber(trade.entry_price, 2)} CAD
 Exit: ${formatNumber(trade.exit_price, 2)} CAD
 ${netPnLMessage}
+💸 Komisyonlar Dahil
 Fees: ${formatNumber(trade.total_fees || 0, 4)} CAD
 Reason: ${trade.exit_reason || 'MANUAL'}
 
@@ -511,8 +512,9 @@ async function getDailySummaryMessage() {
   message += `Profit Factor: ${profitFactor}\n\n`;
   
   // PnL details
-  message += `${emoji} *Kar/Zarar Detayı*\n`;
-  message += `Net PnL: ${formatNumber(netPnl, 2)} CAD\n`;
+  message += `${emoji} *Gerçek Net Kâr/Zarar Detayı*\n`;
+  message += `📊 Gerçek Net PnL: ${formatNumber(netPnl, 2)} CAD\n`;
+  message += `💸 Komisyonlar Dahil\n`;
   message += `Brüt Kar: ${formatNumber(summary.gross_profit, 2)} CAD\n`;
   message += `Brüt Zarar: ${formatNumber(summary.gross_loss, 2)} CAD\n\n`;
   
