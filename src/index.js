@@ -557,7 +557,7 @@ function loadConfig() {
     TIMEFRAME: process.env.TIMEFRAME || '1m',
     RISK_CAD: parseFloat(process.env.RISK_CAD || '2'),
     AUTO_SYNC_ORPHANS: process.env.AUTO_SYNC_ORPHANS === 'true',
-    MAX_DAILY_LOSS_CAD: parseFloat(process.env.MAX_DAILY_LOSS_CAD || '5'),
+    MAX_DAILY_LOSS_CAD: parseFloat(process.env.MAX_DAILY_LOSS_CAD || '-40'),
     MAX_DAILY_TRADES: parseInt(process.env.MAX_DAILY_TRADES || '10'),
     COOLDOWN_MINUTES: parseInt(process.env.COOLDOWN_MINUTES || '5'),
     RSI_OVERSOLD: parseInt(process.env.RSI_OVERSOLD || '38'),

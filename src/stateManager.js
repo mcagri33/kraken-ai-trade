@@ -173,7 +173,8 @@ class StateManager {
       maxDailyTrades: this.state.currentParams?.MAX_DAILY_TRADES || 10,
       dailyPnL,
       maxDailyLoss: this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40,
-      symbolState: symbolState
+      symbolState: symbolState,
+      lossCheck: `${dailyPnL} <= ${this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40} = ${dailyPnL <= (this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40)}`
     });
     
     // Daily limits kontrolü
