@@ -82,15 +82,17 @@ export function calculateIndicators(ohlcv) {
     log('Invalid OHLCV data: insufficient data or not an array', 'ERROR');
     return null;
   }
+
+  // Filter out invalid candles
+  ohlcv = ohlcv.filter(c => c && c.length === 6 && c.every(v => v !== null && !isNaN(v)));
+  
+  if (ohlcv.length < 50) {
+    log('Invalid OHLCV data: insufficient valid candles after filtering', 'ERROR');
+    return null;
+  }
   
   const closes = ohlcv.map(candle => candle.close);
   const volumes = ohlcv.map(candle => candle.volume);
-  
-  // Validate closes and volumes
-  if (closes.some(close => !close || isNaN(close)) || volumes.some(vol => !vol || isNaN(vol))) {
-    log('Invalid OHLCV data: contains null/NaN values', 'ERROR');
-    return null;
-  }
   
   // Calculate indicators with null checks
   const rsi = calculateRSI(closes, 14);
