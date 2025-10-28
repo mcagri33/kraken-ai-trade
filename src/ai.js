@@ -214,7 +214,12 @@ export async function runOptimizationCycle(currentWeights, currentParams) {
       ...weightsToSave,
       updated_at: new Date().toISOString()
     });
-    
+
+    // Hard-stamp last_optimized so /ai_status never shows "Never"
+    await saveRuntimeConfig({
+      last_optimized: new Date().toISOString()
+    });
+
     log('AI optimization cycle completed', 'SUCCESS');
     
     return {

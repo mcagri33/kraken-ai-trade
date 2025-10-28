@@ -233,6 +233,7 @@ function adaptScalperParams(indicators, botState) {
   botState.strategy = botState.strategy || {};
   botState.strategy.confidenceThreshold = adaptiveConfidence;
   botState.strategy.atrLowPct = adaptiveATRLow;
+  botState.strategy.adaptiveMode = 'ON';
 
   log(`🔍 DEBUG: botState.strategy updated - confidenceThreshold=${adaptiveConfidence}, atrLowPct=${adaptiveATRLow}`, 'DEBUG');
   log(`[ADAPTIVE] ATR=${avgATR.toFixed(3)}% → Confidence=${adaptiveConfidence.toFixed(3)}, ATR_LOW_PCT=${adaptiveATRLow}`, 'INFO');
@@ -297,6 +298,13 @@ async function initialize() {
     
     // Set strategy parameters
     botState.currentParams = await buildParams(config, botState.runtimeConfig);
+    
+    // Strategy defaults to avoid "Adaptive: OFF" due to undefined on first /ai_status
+    botState.strategy = {
+      adaptiveMode: 'OFF',
+      confidenceThreshold: config.CONFIDENCE_THRESHOLD ?? 0.65,
+      atrLowPct: botState.runtimeConfig?.atr_low_pct ?? 0.01
+    };
     
     botState.tradingEnabled = config.ENABLE_TRADING && !botState.dryRun;
     botState.lastOptimizationTime = Date.now();

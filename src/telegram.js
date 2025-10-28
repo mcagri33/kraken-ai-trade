@@ -552,17 +552,19 @@ async function getAIStatusMessage() {
   // Runtime Config
   message += `RSI Range: ${runtimeConfig.rsi_oversold} / ${runtimeConfig.rsi_overbought}\n`;
   message += `TP: ${runtimeConfig.tp_multiplier}x, SL: ${runtimeConfig.sl_multiplier}x\n`;
-  message += `Last Optimized: ${runtimeConfig.last_optimized || 'Never'}\n\n`;
+  message += `Last Optimized: ${runtimeConfig.last_optimized ?? 'Never'}\n\n`;
   
   // Adaptive Parameters
   message += `🧠 *Adaptive Scalper Mode*\n`;
-  if (global.botState && global.botState.strategy) {
-    message += `Adaptive: *ON*\n`;
-    message += `ATR Low PCT: ${global.botState.strategy.atrLowPct?.toFixed(3) || 'N/A'}\n`;
-    message += `Confidence Threshold: ${global.botState.strategy.confidenceThreshold?.toFixed(3) || 'N/A'}\n`;
-    message += `Mode: ${global.botState.strategy.confidenceThreshold <= 0.3 ? 'Low-Vol Scalper' : 'High-Vol Conservative'}\n\n`;
+  const strat = global.botState?.strategy;
+  const adaptiveFlag = strat?.adaptiveMode || (typeof strat?.confidenceThreshold !== 'undefined' ? 'ON' : 'OFF');
+  message += `Adaptive: *${adaptiveFlag}*\n`;
+  message += `ATR Low PCT: ${typeof strat?.atrLowPct === 'number' ? strat.atrLowPct.toFixed(3) : 'N/A'}\n`;
+  message += `Confidence Threshold: ${typeof strat?.confidenceThreshold === 'number' ? strat.confidenceThreshold.toFixed(3) : 'N/A'}\n`;
+  if (typeof strat?.confidenceThreshold === 'number') {
+    message += `Mode: ${strat.confidenceThreshold <= 0.3 ? 'Low-Vol Scalper' : 'High-Vol Conservative'}\n\n`;
   } else {
-    message += `Adaptive: *OFF*\n\n`;
+    message += `Mode: N/A\n\n`;
   }
   
   // Risk Parameters
