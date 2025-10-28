@@ -616,6 +616,64 @@ function formatTime(timestamp) {
 }
 
 /**
+ * Send heartbeat status message
+ * @param {Object} botState - Bot state object
+ * @param {string} status - "ok" or "error"
+ * @returns {Promise<void>}
+ */
+export async function sendHeartbeat(botState, status) {
+  try {
+    const strat = botState.strategy || {};
+    const params = botState.currentParams || {};
+    const stats = botState.dailyStats || {};
+
+    const adaptive = strat.adaptiveMode || "OFF";
+    const pnl = stats.realizedPnL || 0;
+    const trades = stats.tradesCount || 0;
+    const maxTrades = params.MAX_DAILY_TRADES || 10;
+    const rsiLow = params.RSI_OVERSOLD || 35;
+    const rsiHigh = params.RSI_OVERBOUGHT || 65;
+    const lastTrade = botState.lastTradeTime
+      ? new Date(botState.lastTradeTime).toLocaleString("tr-TR")
+      : "Henüz işlem yok";
+
+    let msg = "";
+    if (status === "ok") {
+      msg += "🤖 *Kraken AI Trader – Durum Bildirimi*\n";
+      msg += "✅ Bot çalışıyor (loop aktif)\n";
+    } else {
+      msg += "⚠️ *Kraken AI Trader – Uyarı*\n";
+      msg += "🚨 Bot 5 dakikadır loop güncellemesi yapmadı!\n";
+    }
+
+    msg += `⏱ Son işlem: ${lastTrade}\n`;
+    msg += `📊 Günlük PnL: ${pnl.toFixed(2)} CAD\n`;
+    msg += `🧠 Adaptive: ${adaptive} | RSI ${rsiLow}/${rsiHigh}\n`;
+    msg += `🔄 İşlemler: ${trades}/${maxTrades}\n`;
+    msg += `🕒 Zaman: ${new Date().toLocaleString("tr-TR")}`;
+
+    await sendMessage(msg, { parse_mode: 'Markdown' });
+    
+    // Optional: Check for 2-hour trade warning
+    if (status === "ok" && botState.lastTradeTime) {
+      const now = Date.now();
+      const lastTradeTime = new Date(botState.lastTradeTime).getTime();
+      const hoursSinceLastTrade = (now - lastTradeTime) / (1000 * 60 * 60);
+      
+      if (hoursSinceLastTrade >= 2) {
+        await sendMessage(
+          "⚠️ 2 saattir trade yapılmadı, piyasa çok sakin olabilir veya AI bekleme modunda.",
+          { parse_mode: 'Markdown' }
+        );
+      }
+    }
+    
+  } catch (error) {
+    log(`Error sending heartbeat: ${error.message}`, 'ERROR');
+  }
+}
+
+/**
  * Stop Telegram bot
  * @returns {Promise<void>}
  */

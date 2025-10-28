@@ -20,6 +20,7 @@ let botState = {
   runtimeConfig: null,
   lastOptimizationTime: null,
   lastMarketSummaryTime: null,
+  lastLoopTime: null, // Heartbeat monitoring
   recentSignals: [], // Son 10 sinyali sakla
   openPositions: new Map(), // symbol -> position
   tradingEnabled: true,
@@ -334,6 +335,9 @@ async function initialize() {
     log(`Runtime params: RSI=${botState.runtimeConfig.rsi_oversold}/${botState.runtimeConfig.rsi_overbought}, ` +
         `ATR=${botState.runtimeConfig.atr_low_pct}-${botState.runtimeConfig.atr_high_pct}`, 'INFO');
     
+    // Start heartbeat monitoring
+    startHeartbeatMonitor();
+    
     return true;
   } catch (error) {
     log(`Initialization failed: ${error.message}`, 'ERROR');
@@ -564,6 +568,30 @@ async function checkDayReset() {
 }
 
 /**
+ * Start heartbeat monitoring system
+ * Sends status updates every hour and alerts if bot stops responding
+ */
+function startHeartbeatMonitor() {
+  log('🔄 Starting heartbeat monitor (60-minute intervals)', 'INFO');
+  
+  setInterval(async () => {
+    try {
+      const now = Date.now();
+      const lastLoop = botState.lastLoopTime || 0;
+      const diffMinutes = (now - lastLoop) / 60000;
+
+      if (diffMinutes < 5) {
+        await telegram.sendHeartbeat(botState, "ok");
+      } else {
+        await telegram.sendHeartbeat(botState, "error");
+      }
+    } catch (error) {
+      log(`Error in heartbeat monitor: ${error.message}`, 'ERROR');
+    }
+  }, 3600000); // 1 hour = 3600000 ms
+}
+
+/**
  * Main trading loop
  */
 async function mainLoop() {
@@ -625,6 +653,9 @@ async function mainLoop() {
       
       // Update daily summary
       await db.updateDailySummary(getCurrentDate());
+      
+      // Update heartbeat timestamp
+      botState.lastLoopTime = Date.now();
       
       // Wait for next iteration
       await sleep(botState.currentParams.LOOP_INTERVAL_MS);
