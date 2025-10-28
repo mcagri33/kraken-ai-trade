@@ -225,7 +225,8 @@ async function autoSyncOrphanedPositions() {
           } else {
             // === 🔧 DUST THRESHOLD OVERRIDE ===
             // If balance is below minSellAmount but still significant dust, force sell
-            if (balance.total < minSellAmount && balance.total > 0.0000001) {
+            // Increased threshold to catch more dust (0.00000639 BTC case)
+            if (balance.total < minSellAmount && balance.total > 0.000001) {
               log(`💨 Forcing tiny dust sale: ${balance.total.toFixed(8)} ${asset} (below min ${minSellAmount})`, 'INFO');
               
               if (botState.tradingEnabled && !botState.dryRun) {
@@ -720,7 +721,7 @@ async function restoreOpenPositions() {
  */
 let lastDustCleanTime = 0;
 const DUST_CLEAN_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
-const DUST_THRESHOLD_CAD = 1.0; // Convert if value < 1 CAD
+const DUST_THRESHOLD_CAD = 2.0; // Convert if value < 2 CAD (increased from 1.0)
 
 async function autoCleanDust() {
   const now = Date.now();
@@ -1439,11 +1440,11 @@ async function closePosition(symbol, exitPrice, reason) {
     botState.dailyStats.realizedPnL += correctedPnL; // Use corrected PnL that includes dust adjustment
     
     // === 🔧 SATIŞ SONRASI DENGELEME ===
-    // Satıştan sonra kalan BTC varsa PnL'den düş (0.000001 üzeri için)
+    // Satıştan sonra kalan BTC varsa PnL'den düş (0.00001 üzeri için)
     try {
       const balances = await exchange.getAllBaseBalances();
       const btc = balances['BTC'] || 0;
-      if (btc > 0.000001) {
+      if (btc > 0.00001) { // Increased threshold to match immediate cleanup
         const ticker = await exchange.fetchTicker('BTC/CAD');
         const currentPrice = ticker.last;
         const unrealizedLoss = btc * currentPrice;
@@ -1463,8 +1464,8 @@ async function closePosition(symbol, exitPrice, reason) {
           `Final PnL: ${correctedPnL.toFixed(2)} CAD`,
           { parse_mode: 'Markdown' }
         );
-      } else if (btc > 0 && btc <= 0.000001) {
-        log(`⚠️ Tiny BTC dust remaining: ${btc.toFixed(8)} BTC (≤0.000001), no PnL adjustment needed`, 'INFO');
+      } else if (btc > 0 && btc <= 0.00001) {
+        log(`⚠️ Tiny BTC dust remaining: ${btc.toFixed(8)} BTC (≤0.00001), no PnL adjustment needed`, 'INFO');
       }
     } catch (balanceError) {
       log(`⚠️ Error checking post-sale balance: ${balanceError.message}`, 'WARN');
@@ -1560,7 +1561,7 @@ async function closePosition(symbol, exitPrice, reason) {
       const balances = await exchange.getAllBaseBalances();
       const btcBalance = balances['BTC'] || 0;
       
-      if (btcBalance > 0 && btcBalance < 0.00001) {
+      if (btcBalance > 0 && btcBalance < 0.0001) { // Increased from 0.00001 to 0.0001
         log(`🧹 Auto-cleaning tiny BTC dust after close: ${btcBalance.toFixed(8)} BTC`, 'INFO');
         
         if (botState.tradingEnabled && !botState.dryRun) {
@@ -1604,8 +1605,8 @@ async function closePosition(symbol, exitPrice, reason) {
         } else {
           log(`⚠️ Trading disabled, immediate dust cleanup skipped`, 'WARN');
         }
-      } else if (btcBalance >= 0.00001) {
-        log(`💰 Significant BTC balance remaining: ${btcBalance.toFixed(8)} BTC (≥0.00001), no immediate cleanup needed`, 'INFO');
+      } else if (btcBalance >= 0.0001) { // Updated threshold
+        log(`💰 Significant BTC balance remaining: ${btcBalance.toFixed(8)} BTC (≥0.0001), no immediate cleanup needed`, 'INFO');
       }
     } catch (dustCheckError) {
       log(`⚠️ Error checking post-close dust: ${dustCheckError.message}`, 'WARN');

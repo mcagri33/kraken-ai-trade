@@ -38,9 +38,9 @@
 - `DUST_FORCE_CLEANUP` ile zorla satış yapar
 
 ### 📊 Dust Cleanup Thresholds
-- **Immediate Cleanup:** < 0.00001 BTC
-- **Scheduled Cleanup:** < 1.00 CAD value
-- **Force Cleanup:** > 0.0000001 BTC (minimum altı ama anlamlı)
+- **Immediate Cleanup:** < 0.0001 BTC (increased from 0.00001)
+- **Scheduled Cleanup:** < 2.00 CAD value (increased from 1.00)
+- **Force Cleanup:** > 0.000001 BTC (minimum altı ama anlamlı)
 
 ---
 
