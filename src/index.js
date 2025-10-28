@@ -492,8 +492,8 @@ function loadConfig() {
  */
 async function initializeBalanceTracking() {
   try {
-    const balances = await exchange.getAllBaseBalances();
-    botState.lastRecordedBalance = balances['CAD'] || 0;
+    const cadBalance = await exchange.getRobustCADBalance();
+    botState.lastRecordedBalance = cadBalance;
     log(`💰 Initial balance tracking: ${botState.lastRecordedBalance.toFixed(2)} CAD`, 'INFO');
   } catch (error) {
     log(`⚠️ Error initializing balance tracking: ${error.message}`, 'WARN');
@@ -1063,8 +1063,14 @@ async function handleBuySignal(symbol, signal) {
       opened_at: new Date()
     };
     
+    // Get balance before trade for tracking
+    const balanceBefore = await exchange.getRobustCADBalance();
+    
     // Save to database
-    const tradeId = await db.insertTrade(position);
+    const tradeId = await db.insertTrade({
+      ...position,
+      balance_before: balanceBefore
+    });
     position.id = tradeId;
     
     // Store in bot state
@@ -1166,16 +1172,16 @@ async function closePosition(symbol, exitPrice, reason) {
     // === 🔍 REAL WALLET BALANCE TRACKING ===
     // Get current CAD balance after trade
     let balanceAfter = null;
+    let balanceBefore = position.balance_before || 0; // Get from position data
     let netBalanceChange = 0;
     let correctedPnL = netPnLData.netPnL;
     
     try {
-      const balances = await exchange.getAllBaseBalances();
-      balanceAfter = balances['CAD'] || 0;
+      balanceAfter = await exchange.getRobustCADBalance();
       
       // Calculate net balance change
-      if (botState.lastRecordedBalance !== null) {
-        netBalanceChange = balanceAfter - botState.lastRecordedBalance;
+      if (balanceBefore > 0) {
+        netBalanceChange = balanceAfter - balanceBefore;
         
         // Check for false profit reports
         if (netBalanceChange < 0 && correctedPnL > 0) {
@@ -1193,14 +1199,9 @@ async function closePosition(symbol, exitPrice, reason) {
           );
         }
         
-        // Update last recorded balance
-        botState.lastRecordedBalance = balanceAfter;
-        
-        log(`💰 Balance tracking: Before=${botState.lastRecordedBalance.toFixed(2)}, After=${balanceAfter.toFixed(2)}, Change=${netBalanceChange.toFixed(2)}`, 'INFO');
+        log(`💰 Balance tracking: Before=${balanceBefore.toFixed(2)}, After=${balanceAfter.toFixed(2)}, Change=${netBalanceChange.toFixed(2)}`, 'INFO');
       } else {
-        // First trade, record current balance
-        botState.lastRecordedBalance = balanceAfter;
-        log(`💰 Initial balance recorded: ${balanceAfter.toFixed(2)} CAD`, 'INFO');
+        log(`⚠️ No balance_before recorded for this trade, skipping balance correction`, 'WARN');
       }
     } catch (balanceError) {
       log(`⚠️ Error tracking balance: ${balanceError.message}`, 'WARN');
@@ -1216,7 +1217,7 @@ async function closePosition(symbol, exitPrice, reason) {
       pnl: netPnLData.grossPnL, // Gross PnL for compatibility
       pnl_pct: netPnLData.netPnLPct, // Net PnL percentage
       pnl_net: correctedPnL, // Corrected net PnL
-      balance_before: botState.lastRecordedBalance,
+      balance_before: balanceBefore,
       balance_after: balanceAfter,
       net_balance_change: netBalanceChange,
       closed_at: new Date(),

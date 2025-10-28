@@ -614,6 +614,36 @@ function extractFee(order) {
 }
 
 /**
+ * Get CAD balance with robust fallback handling
+ * Handles different Kraken API response formats
+ * @returns {Promise<number>} CAD balance
+ */
+export async function getRobustCADBalance() {
+  try {
+    const balance = await retryExchangeCall(async () => {
+      return await exchange.fetchBalance();
+    });
+    
+    // Try multiple possible balance structures
+    const cadBalance = 
+      balance.total?.CAD ??           // Standard CCXT format
+      balance.free?.CAD ??            // Free balance format
+      balance.used?.CAD ??            // Used balance format
+      balance.info?.CAD ??            // Raw info format
+      balance.CAD ??                  // Direct CAD field
+      balance['CAD'] ??               // String key format
+      0;                              // Fallback to 0
+    
+    log(`💰 Robust CAD balance: ${cadBalance.toFixed(2)} CAD (from ${Object.keys(balance).join(', ')})`, 'DEBUG');
+    return parseFloat(cadBalance) || 0;
+    
+  } catch (error) {
+    log(`⚠️ Error fetching CAD balance: ${error.message}`, 'WARN');
+    return 0;
+  }
+}
+
+/**
  * Get all base currency balances (for single position check)
  * @returns {Promise<Object>} Balances by currency
  */

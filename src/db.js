@@ -68,8 +68,8 @@ export async function insertTrade(trade) {
   const query = `
     INSERT INTO trades (
       symbol, side, qty, entry_price, entry_fee, ai_confidence, 
-      atr_pct, stop_loss, take_profit, opened_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      atr_pct, stop_loss, take_profit, balance_before, opened_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   
   // Null guards
@@ -83,6 +83,7 @@ export async function insertTrade(trade) {
     parseFloat(trade.atr_pct) || 0,
     parseFloat(trade.stop_loss) || 0,
     parseFloat(trade.take_profit) || 0,
+    parseFloat(trade.balance_before) || 0,
     formatDate(trade.opened_at || new Date())
   ];
   
@@ -124,6 +125,7 @@ export async function updateTradeExit(tradeId, exitData) {
       UPDATE trades 
       SET exit_price = ?, exit_fee = ?, total_fees = ?, 
           pnl = ?, pnl_pct = ?, pnl_net = ?,
+          balance_before = ?, balance_after = ?, net_balance_change = ?,
           closed_at = ?, exit_reason = ?, candles_held = ?
       WHERE id = ?
     `;
@@ -135,6 +137,9 @@ export async function updateTradeExit(tradeId, exitData) {
       pnl,
       pnlPct,
       pnlNet,
+      parseFloat(exitData.balance_before) || 0,
+      parseFloat(exitData.balance_after) || 0,
+      parseFloat(exitData.net_balance_change) || 0,
       formatDate(exitData.closed_at || new Date()),
       exitData.exit_reason || 'UNKNOWN',
       candlesHeld,
