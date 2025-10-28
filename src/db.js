@@ -209,6 +209,21 @@ export async function getTodayClosedTradesCount() {
 }
 
 /**
+ * Get trade by ID
+ * @param {number} tradeId - Trade ID
+ * @returns {Promise<Object|null>} Trade data or null
+ */
+export async function getTradeById(tradeId) {
+  const query = `
+    SELECT * FROM trades 
+    WHERE id = ?
+  `;
+  
+  const [rows] = await pool.execute(query, [tradeId]);
+  return rows.length > 0 ? rows[0] : null;
+}
+
+/**
  * Get last closed trade with balance data
  * @returns {Promise<Object|null>} Last closed trade or null
  */

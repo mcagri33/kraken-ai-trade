@@ -1119,6 +1119,9 @@ async function handleBuySignal(symbol, signal) {
     const tradeId = await recordTrade(position);
     position.id = tradeId;
     
+    // Add balance_before to position object for closePosition() access
+    position.balance_before = await exchange.getRobustCADBalance();
+    
     // Store in bot state
     botState.openPositions.set(symbol, position);
     
@@ -1225,6 +1228,17 @@ async function closePosition(symbol, exitPrice, reason) {
     try {
       balanceAfter = await exchange.getRobustCADBalance();
       
+      // If balance_before is missing, try to get it from database
+      if (balanceBefore <= 0) {
+        try {
+          const dbTrade = await db.getTradeById(position.id);
+          balanceBefore = dbTrade?.balance_before || 0;
+          log(`💰 Retrieved balance_before from DB: ${balanceBefore.toFixed(2)} CAD`, 'INFO');
+        } catch (dbError) {
+          log(`⚠️ Could not get balance_before from DB: ${dbError.message}`, 'WARN');
+        }
+      }
+      
       // Calculate net balance change
       if (balanceBefore > 0) {
         netBalanceChange = balanceAfter - balanceBefore;
@@ -1247,10 +1261,14 @@ async function closePosition(symbol, exitPrice, reason) {
         
         log(`💰 Balance tracking: Before=${balanceBefore.toFixed(2)}, After=${balanceAfter.toFixed(2)}, Change=${netBalanceChange.toFixed(2)}`, 'INFO');
       } else {
-        log(`⚠️ No balance_before recorded for this trade, skipping balance correction`, 'WARN');
+        log(`⚠️ No balance_before available for this trade, skipping balance correction`, 'WARN');
+        // Use calculated PnL as fallback
+        netBalanceChange = correctedPnL;
       }
     } catch (balanceError) {
       log(`⚠️ Error tracking balance: ${balanceError.message}`, 'WARN');
+      // Use calculated PnL as fallback
+      netBalanceChange = correctedPnL;
     }
     
     // Calculate candles held
@@ -1274,9 +1292,9 @@ async function closePosition(symbol, exitPrice, reason) {
     // AI weights will be updated by analyzeTradeAndOptimize() below
     // (Removed duplicate learning to prevent double weight updates)
     
-    // Update daily stats with CORRECTED NET PnL
+    // Update daily stats with REAL NET BALANCE CHANGE
     botState.dailyStats.tradesCount++;
-    botState.dailyStats.realizedPnL += correctedPnL; // Use corrected PnL
+    botState.dailyStats.realizedPnL += netBalanceChange; // Use real balance change, not calculated PnL
     
     // === 🔧 SATIŞ SONRASI DENGELEME ===
     // Satıştan sonra kalan BTC varsa PnL'den düş (0.00002 üzeri için)
@@ -1305,8 +1323,8 @@ async function closePosition(symbol, exitPrice, reason) {
     await telegram.notifyTradeClose({
       ...position,
       exit_price: actualExitPrice,
-      pnl: correctedPnL, // Use corrected PnL
-      pnl_net: correctedPnL, // Real net PnL
+      pnl: netBalanceChange, // Use real balance change
+      pnl_net: netBalanceChange, // Real net balance change
       pnl_pct: netPnLData.netPnLPct,
       balance_before: balanceBefore,
       balance_after: balanceAfter,
@@ -1319,7 +1337,7 @@ async function closePosition(symbol, exitPrice, reason) {
     // Self-Learning Analysis
     try {
       const learningResult = await ai.analyzeTradeAndOptimize({
-        pnl: correctedPnL, // Use corrected PnL for AI learning
+        pnl: netBalanceChange, // Use real balance change for AI learning
         entry_reason: 'AI_SIGNAL',
         exit_reason: reason,
         indicators: {
@@ -1336,7 +1354,7 @@ async function closePosition(symbol, exitPrice, reason) {
         
         // Send enhanced explain message with AI learning info
         await sendEnhancedExplainMessage(symbol, {
-          pnl: correctedPnL, // Use corrected PnL
+          pnl: netBalanceChange, // Use real balance change
           entryPrice: position.entry_price,
           exitPrice: actualExitPrice,
           reason: learningResult.reasonText,
@@ -1346,7 +1364,7 @@ async function closePosition(symbol, exitPrice, reason) {
         });
       } else {
         // Fallback to basic explain message
-        const messageType = correctedPnL < 0 ? "LOSS" : "SELL";
+        const messageType = netBalanceChange < 0 ? "LOSS" : "SELL";
         await sendExplainMessage(messageType, symbol, {
           rsi: 0,
           ema20: 0,
@@ -1354,7 +1372,7 @@ async function closePosition(symbol, exitPrice, reason) {
           atrPct: 0,
           entryPrice: position.entry_price,
           exitPrice: actualExitPrice,
-          pnl: correctedPnL, // Use corrected PnL
+          pnl: netBalanceChange, // Use real balance change
           confidence: position.ai_confidence,
           reason: reason
         });
@@ -1363,7 +1381,7 @@ async function closePosition(symbol, exitPrice, reason) {
       log(`Error in self-learning analysis: ${error.message}`, 'WARN');
       
       // Fallback to basic explain message
-      const messageType = correctedPnL < 0 ? "LOSS" : "SELL";
+      const messageType = netBalanceChange < 0 ? "LOSS" : "SELL";
       await sendExplainMessage(messageType, symbol, {
         rsi: 0,
         ema20: 0,
@@ -1371,14 +1389,14 @@ async function closePosition(symbol, exitPrice, reason) {
         atrPct: 0,
         entryPrice: position.entry_price,
         exitPrice: actualExitPrice,
-        pnl: correctedPnL, // Use corrected PnL
+        pnl: netBalanceChange, // Use real balance change
         confidence: position.ai_confidence,
         reason: reason
       });
     }
     
-    log(`✅ Position closed: ${symbol} Corrected Net PnL=${correctedPnL.toFixed(2)} CAD`, 
-        correctedPnL > 0 ? 'SUCCESS' : 'WARN');
+    log(`✅ Position closed: ${symbol} Real Net Balance Change=${netBalanceChange.toFixed(2)} CAD`, 
+        netBalanceChange > 0 ? 'SUCCESS' : 'WARN');
     
   } catch (error) {
     log(`Error closing position: ${error.message}`, 'ERROR');
