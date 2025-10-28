@@ -223,7 +223,55 @@ async function autoSyncOrphanedPositions() {
               log(`⚠️ Trading disabled, orphaned ${asset} not sold`, 'WARN');
             }
           } else {
-            log(`⚠️ ${asset} amount too small to sell: ${balance.total.toFixed(8)} < ${minSellAmount}`, 'WARN');
+            // === 🔧 DUST THRESHOLD OVERRIDE ===
+            // If balance is below minSellAmount but still significant dust, force sell
+            if (balance.total < minSellAmount && balance.total > 0.0000001) {
+              log(`💨 Forcing tiny dust sale: ${balance.total.toFixed(8)} ${asset} (below min ${minSellAmount})`, 'INFO');
+              
+              if (botState.tradingEnabled && !botState.dryRun) {
+                try {
+                  // Force sell tiny dust even if below minimum
+                  const sellOrder = await exchange.marketSell(`${asset}/CAD`, balance.total);
+                  
+                  const sellPrice = sellOrder.average || sellOrder.price;
+                  const cadValue = balance.total * sellPrice;
+                  
+                  // positions_history tablosuna kaydet
+                  await db.insertTrade({
+                    symbol: `${asset}/CAD`,
+                    side: 'SELL',
+                    qty: balance.total,
+                    price: sellPrice,
+                    opened_at: new Date(),
+                    closed_at: new Date(),
+                    exit_reason: 'DUST_FORCE_CLEANUP',
+                    source: 'dust_override',
+                    pnl: 0,
+                    pnl_pct: 0
+                  });
+                  
+                  // Telegram bildirimi
+                  await telegram.sendMessage(
+                    `💨 *Dust Force Cleanup*\n\n` +
+                    `${balance.total.toFixed(8)} ${asset} → ${cadValue.toFixed(2)} CAD\n` +
+                    `Reason: Below minimum but significant dust\n` +
+                    `Threshold override applied`,
+                    { parse_mode: 'Markdown' }
+                  );
+                  
+                  log(`✅ Tiny dust ${asset} force-sold: ${balance.total.toFixed(8)} → ${cadValue.toFixed(2)} CAD`, 'SUCCESS');
+                  cleanupCount++;
+                  
+                } catch (dustError) {
+                  log(`⚠️ Dust force sale failed: ${dustError.message}`, 'WARN');
+                  // Don't throw error - dust cleanup failure shouldn't stop the process
+                }
+              } else {
+                log(`⚠️ Trading disabled, tiny dust ${asset} not force-sold`, 'WARN');
+              }
+            } else {
+              log(`⚠️ ${asset} amount too small to sell: ${balance.total.toFixed(8)} < ${minSellAmount}`, 'WARN');
+            }
           }
         }
       }
@@ -1505,6 +1553,64 @@ async function closePosition(symbol, exitPrice, reason) {
     
     log(`✅ Position closed: ${symbol} Corrected PnL=${correctedPnL.toFixed(2)} CAD (includes dust adjustment)`, 
         correctedPnL > 0 ? 'SUCCESS' : 'WARN');
+    
+    // === 🔧 AFTER SALE EXECUTED - IMMEDIATE DUST CLEANUP ===
+    // Satıştan hemen sonra kalan kırıntıyı anında temizle (12 saat beklemeden)
+    try {
+      const balances = await exchange.getAllBaseBalances();
+      const btcBalance = balances['BTC'] || 0;
+      
+      if (btcBalance > 0 && btcBalance < 0.00001) {
+        log(`🧹 Auto-cleaning tiny BTC dust after close: ${btcBalance.toFixed(8)} BTC`, 'INFO');
+        
+        if (botState.tradingEnabled && !botState.dryRun) {
+          try {
+            // Force sell tiny dust immediately after position close
+            const dustSellOrder = await exchange.marketSell('BTC/CAD', btcBalance);
+            
+            const dustSellPrice = dustSellOrder.average || dustSellOrder.price;
+            const dustCadValue = btcBalance * dustSellPrice;
+            
+            // Record dust cleanup trade
+            await db.insertTrade({
+              symbol: 'BTC/CAD',
+              side: 'SELL',
+              qty: btcBalance,
+              price: dustSellPrice,
+              opened_at: new Date(),
+              closed_at: new Date(),
+              exit_reason: 'IMMEDIATE_DUST_CLEANUP',
+              source: 'post_close_cleanup',
+              pnl: 0,
+              pnl_pct: 0
+            });
+            
+            // Telegram notification
+            await telegram.sendMessage(
+              `🧹 *Immediate Dust Cleanup*\n\n` +
+              `Position: ${symbol}\n` +
+              `Dust: ${btcBalance.toFixed(8)} BTC → ${dustCadValue.toFixed(2)} CAD\n` +
+              `Reason: Post-close cleanup\n` +
+              `_Cleaned immediately after position close_`,
+              { parse_mode: 'Markdown' }
+            );
+            
+            log(`✅ Immediate dust cleanup: ${btcBalance.toFixed(8)} BTC → ${dustCadValue.toFixed(2)} CAD`, 'SUCCESS');
+            
+          } catch (dustError) {
+            log(`⚠️ Immediate dust cleanup failed: ${dustError.message}`, 'WARN');
+            // Don't throw error - dust cleanup failure shouldn't affect position close
+          }
+        } else {
+          log(`⚠️ Trading disabled, immediate dust cleanup skipped`, 'WARN');
+        }
+      } else if (btcBalance >= 0.00001) {
+        log(`💰 Significant BTC balance remaining: ${btcBalance.toFixed(8)} BTC (≥0.00001), no immediate cleanup needed`, 'INFO');
+      }
+    } catch (dustCheckError) {
+      log(`⚠️ Error checking post-close dust: ${dustCheckError.message}`, 'WARN');
+      // Don't throw error - dust check failure shouldn't affect position close
+    }
     
   } catch (error) {
     log(`Error closing position: ${error.message}`, 'ERROR');

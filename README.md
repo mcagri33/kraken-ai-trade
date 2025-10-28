@@ -4,9 +4,43 @@
 - **Platform:** Kraken Exchange (CAD Spot Markets)
 - **Strateji:** AI-Powered Adaptive Scalper + Fee-Aware Trading
 - **Risk Yönetimi:** Dinamik Stop Loss & Take Profit + Orphaned Positions Cleanup
+- **Dust Management:** 3-Katmanlı Otomatik Temizlik Sistemi
 - **Bildirimler:** Telegram Bot Integration + Real-time Alerts
 - **Veritabanı:** MySQL/MariaDB + Auto-sync
-- **PnL System:** Gerçek Kraken Bakiyesi Uyumlu
+- **PnL System:** Gerçek Kraken Bakiyesi Uyumlu + Dust-Aware Hesaplama
+
+---
+
+## 🧹 Dust Management System
+
+### 🎯 3-Katmanlı Otomatik Temizlik Sistemi
+
+#### 1️⃣ **Fee-Aware Satış**
+- Satış miktarı komisyon düşülerek hesaplanır: `sellAmount = qty * (1 - feeRate)`
+- %0.26 Kraken taker fee otomatik düşülür
+- Kırıntı oluşumu minimize edilir
+
+#### 2️⃣ **Immediate Post-Close Cleanup**
+- Her pozisyon kapanışından hemen sonra çalışır
+- 0.00001 BTC altındaki kırıntıları anında temizler
+- 12 saat beklemeden otomatik satış yapar
+- Telegram bildirimi ile raporlanır
+
+#### 3️⃣ **Scheduled Dust Cleanup**
+- 12 saatte bir otomatik çalışır
+- Tüm base currency'leri kontrol eder
+- 1 CAD altındaki dust'ları CAD'e çevirir
+- Detaylı rapor ve istatistik gönderir
+
+#### 4️⃣ **Orphaned Positions Cleanup**
+- Gerçek pozisyonu olmayan coinleri otomatik satar
+- Dust threshold override ile minimum altındaki kırıntıları da temizler
+- `DUST_FORCE_CLEANUP` ile zorla satış yapar
+
+### 📊 Dust Cleanup Thresholds
+- **Immediate Cleanup:** < 0.00001 BTC
+- **Scheduled Cleanup:** < 1.00 CAD value
+- **Force Cleanup:** > 0.0000001 BTC (minimum altı ama anlamlı)
 
 ---
 
