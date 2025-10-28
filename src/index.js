@@ -49,6 +49,74 @@ function estimateFee(orderValue, feeRate = null) {
 }
 
 /**
+ * Fee-Aware Risk Filter
+ * Checks if expected net profit after fees would be positive
+ * @param {Object} signal - Trading signal
+ * @param {number} tradeValue - Trade value in CAD
+ * @param {Object} params - Strategy parameters
+ * @returns {Object} {allowed: boolean, expectedProfit: number, expectedFee: number, reason: string}
+ */
+function checkFeeAwareRisk(signal, tradeValue, params) {
+  try {
+    // Get current fee rates
+    const feeRate = botState.feeRates?.taker || 0.0026;
+    
+    // Calculate expected fees (entry + exit)
+    const expectedFee = tradeValue * feeRate * 2; // 2x for round trip
+    
+    // Calculate expected profit based on ATR and TP multiplier
+    const atrValue = signal.atr || 0;
+    const tpMultiplier = params.TP_MULTIPLIER || 2.4;
+    const expectedProfit = atrValue * tpMultiplier * tradeValue;
+    
+    // Calculate net expected profit
+    const netExpectedProfit = expectedProfit - expectedFee;
+    
+    // Check if net profit is positive
+    const allowed = netExpectedProfit > 0;
+    
+    // Adaptive mode: stricter filtering for low volatility
+    let reason = '';
+    if (!allowed) {
+      reason = `Trade avoided due to low expected profit (ATR too small or fee too high)`;
+    }
+    
+    // Enhanced adaptive filtering for low volatility
+    if (botState.strategy?.adaptiveMode === 'ON' && signal.indicators?.atrPct < 0.1) {
+      const minExpectedProfit = expectedFee * 1.2; // 20% buffer above fees
+      if (expectedProfit < minExpectedProfit) {
+        reason = `Low volatility trade skipped - insufficient profit buffer (${expectedProfit.toFixed(2)} < ${minExpectedProfit.toFixed(2)} CAD)`;
+        return {
+          allowed: false,
+          expectedProfit,
+          expectedFee,
+          netExpectedProfit,
+          reason
+        };
+      }
+    }
+    
+    return {
+      allowed,
+      expectedProfit,
+      expectedFee,
+      netExpectedProfit,
+      reason
+    };
+    
+  } catch (error) {
+    log(`Error in fee-aware risk check: ${error.message}`, 'ERROR');
+    return {
+      allowed: true, // Default to allow if check fails
+      expectedProfit: 0,
+      expectedFee: 0,
+      netExpectedProfit: 0,
+      reason: 'Risk check failed, allowing trade'
+    };
+  }
+}
+
+/**
  * Calculate net PnL with fee-aware logic
  * @param {Object} position - Position object
  * @param {number} exitPrice - Exit price
@@ -902,6 +970,32 @@ async function handleBuySignal(symbol, signal) {
     const netTradeValue = cadToRisk / (1 + feeRate);
     
     log(`💰 Fee-aware calculation: RISK_CAD=${cadToRisk}, Fee Rate=${(feeRate*100).toFixed(2)}%, Net Trade Value=${netTradeValue.toFixed(2)}`, 'INFO');
+    
+    // === 🔍 FEE-AWARE RISK FILTER ===
+    // Check if expected net profit after fees would be positive
+    const riskCheck = checkFeeAwareRisk(signal, netTradeValue, botState.currentParams);
+    
+    if (!riskCheck.allowed) {
+      log(`[SKIPPED] ${riskCheck.reason}`, 'WARN');
+      log(`💰 Expected Profit: ${riskCheck.expectedProfit.toFixed(2)} CAD, Expected Fee: ${riskCheck.expectedFee.toFixed(2)} CAD, Net: ${riskCheck.netExpectedProfit.toFixed(2)} CAD`, 'WARN');
+      
+      // Send Telegram notification for skipped trade
+      await telegram.sendMessage(
+        `⚠️ *İşlem Atlandı*\n\n` +
+        `Komisyon sonrası kâr potansiyeli yetersiz.\n` +
+        `Beklenen Net Getiri: ${riskCheck.netExpectedProfit.toFixed(2)} CAD\n\n` +
+        `📊 *Detaylar:*\n` +
+        `Beklenen Kâr: ${riskCheck.expectedProfit.toFixed(2)} CAD\n` +
+        `Beklenen Komisyon: ${riskCheck.expectedFee.toFixed(2)} CAD\n` +
+        `ATR: ${signal.atr?.toFixed(4) || 'N/A'}\n` +
+        `TP Multiplier: ${botState.currentParams.TP_MULTIPLIER}x`,
+        { parse_mode: 'Markdown' }
+      );
+      
+      return; // Skip this trade
+    }
+    
+    log(`✅ Fee-aware risk check passed: Net Expected Profit = ${riskCheck.netExpectedProfit.toFixed(2)} CAD`, 'SUCCESS');
     
     if (botState.dryRun) {
       log(`[DRY-RUN] Would BUY ${symbol} with ${netTradeValue.toFixed(2)} CAD (net) @ ${signal.price}`, 'INFO');

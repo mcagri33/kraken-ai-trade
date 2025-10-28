@@ -58,15 +58,26 @@ export function updateWeightsFromTrade(weights, pnl, learningRate = 0.01) {
 
 /**
  * Optimize strategy parameters based on performance metrics
- * Enhanced with runtime config persistence
+ * Enhanced with runtime config persistence and fee-aware optimization
  * @param {Object} params - Current strategy parameters
  * @param {Object} performance - Performance metrics
  * @param {number} riskPerTrade - Risk per trade in CAD
+ * @param {number} avgFeeRate - Average fee rate (optional)
  * @returns {Object} Optimized parameters
  */
-export async function optimizeParameters(params, performance, riskPerTrade = 2) {
+export async function optimizeParameters(params, performance, riskPerTrade = 2, avgFeeRate = 0.0026) {
   const newParams = { ...params };
   let changes = [];
+  
+  // Fee-aware optimization: adjust TP multiplier based on fee rates
+  const minExpectedProfit = riskPerTrade * avgFeeRate * 2 * 1.2; // 20% buffer above fees
+  const currentTP = newParams.tp_multiplier || 2.4;
+  
+  // If fees are high, increase TP multiplier to maintain profitability
+  if (avgFeeRate > 0.003) { // High fee threshold
+    newParams.tp_multiplier = Math.min(currentTP * 1.1, 3.5); // Max 3.5x
+    changes.push(`TP multiplier increased to ${newParams.tp_multiplier.toFixed(2)} due to high fees (${(avgFeeRate*100).toFixed(2)}%)`);
+  }
   
   // Win rate too low: adjust RSI thresholds (make less restrictive)
   if (performance.win_rate < 0.52) {
@@ -187,11 +198,15 @@ export async function runOptimizationCycle(currentWeights, currentParams) {
         `PF=${aggregatePerformance.profit_factor.toFixed(2)}, ` +
         `MaxDD=${aggregatePerformance.max_drawdown.toFixed(2)} CAD`, 'INFO');
     
+    // Get current fee rate for optimization
+    const currentFeeRate = global.botState?.feeRates?.taker || 0.0026;
+    
     // Optimize parameters
     const optimizedParams = await optimizeParameters(
       currentParams, 
       aggregatePerformance,
-      currentParams.RISK_CAD || 2
+      currentParams.RISK_CAD || 2,
+      currentFeeRate
     );
     
     // Save to database
