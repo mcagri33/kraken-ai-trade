@@ -488,13 +488,65 @@ function loadConfig() {
 }
 
 /**
+ * Record trade with balance tracking
+ * @param {Object} tradeData - Trade data to record
+ * @returns {Promise<number>} Trade ID
+ */
+async function recordTrade(tradeData) {
+  try {
+    // Get current CAD balance before trade
+    const balanceBefore = await exchange.getRobustCADBalance();
+    
+    // Add balance tracking to trade data
+    const tradeWithBalance = {
+      ...tradeData,
+      balance_before: balanceBefore
+    };
+    
+    // Insert trade to database
+    const tradeId = await db.insertTrade(tradeWithBalance);
+    
+    log(`📝 Trade recorded: ID=${tradeId}, Balance Before=${balanceBefore.toFixed(2)} CAD`, 'INFO');
+    
+    return tradeId;
+    
+  } catch (error) {
+    log(`❌ Error recording trade: ${error.message}`, 'ERROR');
+    throw error;
+  }
+}
+
+/**
  * Initialize balance tracking
  */
 async function initializeBalanceTracking() {
   try {
-    const cadBalance = await exchange.getRobustCADBalance();
-    botState.lastRecordedBalance = cadBalance;
-    log(`💰 Initial balance tracking: ${botState.lastRecordedBalance.toFixed(2)} CAD`, 'INFO');
+    // Get current balance from Kraken
+    const currentBalance = await exchange.getRobustCADBalance();
+    
+    // Try to get last recorded balance from database
+    let lastRecordedBalance = null;
+    try {
+      const lastTrade = await db.getLastClosedTrade();
+      if (lastTrade && lastTrade.balance_after !== null) {
+        lastRecordedBalance = parseFloat(lastTrade.balance_after);
+        log(`💰 Last recorded balance from DB: ${lastRecordedBalance.toFixed(2)} CAD`, 'INFO');
+      }
+    } catch (dbError) {
+      log(`⚠️ Could not get last balance from DB: ${dbError.message}`, 'WARN');
+    }
+    
+    // Use current balance as initial balance
+    botState.lastRecordedBalance = currentBalance;
+    
+    // Log balance comparison
+    if (lastRecordedBalance !== null) {
+      const balanceDiff = currentBalance - lastRecordedBalance;
+      log(`💰 Balance comparison: Current=${currentBalance.toFixed(2)}, Last=${lastRecordedBalance.toFixed(2)}, Diff=${balanceDiff.toFixed(2)} CAD`, 'INFO');
+    } else {
+      log(`💰 Initial balance tracking: ${currentBalance.toFixed(2)} CAD (no previous record)`, 'INFO');
+    }
+    
   } catch (error) {
     log(`⚠️ Error initializing balance tracking: ${error.message}`, 'WARN');
     botState.lastRecordedBalance = null;
@@ -1063,14 +1115,8 @@ async function handleBuySignal(symbol, signal) {
       opened_at: new Date()
     };
     
-    // Get balance before trade for tracking
-    const balanceBefore = await exchange.getRobustCADBalance();
-    
-    // Save to database
-    const tradeId = await db.insertTrade({
-      ...position,
-      balance_before: balanceBefore
-    });
+    // Record trade with balance tracking
+    const tradeId = await recordTrade(position);
     position.id = tradeId;
     
     // Store in bot state
@@ -1255,12 +1301,16 @@ async function closePosition(symbol, exitPrice, reason) {
     botState.lastTradeTime = new Date();
     botState.lastTradePnL = netPnLData.netPnL; // Use net PnL
     
-    // Notify with net PnL data
+    // Notify with net PnL data and balance tracking
     await telegram.notifyTradeClose({
       ...position,
       exit_price: actualExitPrice,
-      pnl: netPnLData.netPnL, // Net PnL for notifications
+      pnl: correctedPnL, // Use corrected PnL
+      pnl_net: correctedPnL, // Real net PnL
       pnl_pct: netPnLData.netPnLPct,
+      balance_before: balanceBefore,
+      balance_after: balanceAfter,
+      net_balance_change: netBalanceChange,
       exit_reason: reason,
       closed_at: new Date(),
       total_fees: netPnLData.totalFees

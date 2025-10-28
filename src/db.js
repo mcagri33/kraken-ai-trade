@@ -209,6 +209,22 @@ export async function getTodayClosedTradesCount() {
 }
 
 /**
+ * Get last closed trade with balance data
+ * @returns {Promise<Object|null>} Last closed trade or null
+ */
+export async function getLastClosedTrade() {
+  const query = `
+    SELECT * FROM trades 
+    WHERE closed_at IS NOT NULL 
+    ORDER BY closed_at DESC 
+    LIMIT 1
+  `;
+  
+  const [rows] = await pool.execute(query);
+  return rows.length > 0 ? rows[0] : null;
+}
+
+/**
  * Get today's total net balance change (real wallet changes)
  * @returns {Promise<number>} Total net balance change for today
  */

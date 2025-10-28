@@ -376,29 +376,31 @@ ATR: ${formatNumber(trade.atr_pct, 2)}%
 }
 
 /**
- * Send trade close notification
+ * Send trade close notification with real balance tracking
  * @param {Object} trade - Closed trade data
  * @returns {Promise<void>}
  */
 export async function notifyTradeClose(trade) {
-  const isProfit = trade.pnl > 0;
-  const emoji = isProfit ? '✅' : '❌';
-  const pnlSign = trade.pnl >= 0 ? '+' : '';
+  const isProfit = trade.pnl_net > 0;
+  const emoji = isProfit ? '🟩' : '🟥';
+  const pnlSign = trade.pnl_net >= 0 ? '+' : '';
   
-  // Real Net PnL gösterimi (cüzdan bakiyesi bazlı)
-  const netPnLMessage = `📊 Gerçek Net Kâr/Zarar: ${pnlSign}${formatNumber(trade.pnl, 2)} CAD`;
+  // Real balance tracking data
+  const balanceBefore = trade.balance_before || 0;
+  const balanceAfter = trade.balance_after || 0;
+  const netChange = trade.net_balance_change || 0;
   
   const message = `
-${emoji} *Position Closed*
+${emoji} *Trade Closed — REAL RESULT*
 
-${trade.symbol}
-Entry: ${formatNumber(trade.entry_price, 2)} CAD
-Exit: ${formatNumber(trade.exit_price, 2)} CAD
-${netPnLMessage}
-💸 Komisyonlar Dahil
+Pair: ${trade.symbol}
+PnL: ${pnlSign}${formatNumber(trade.pnl_net || trade.pnl, 2)} CAD (gerçek net)
+Balance Before: ${formatNumber(balanceBefore, 2)} CAD
+Balance After: ${formatNumber(balanceAfter, 2)} CAD
+Net Change: ${pnlSign}${formatNumber(netChange, 2)} CAD
+
 Fees: ${formatNumber(trade.total_fees || 0, 4)} CAD
 Reason: ${trade.exit_reason || 'MANUAL'}
-
 Duration: ${calculateDuration(trade.opened_at, trade.closed_at)}
   `.trim();
 
