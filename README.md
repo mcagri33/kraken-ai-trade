@@ -29,7 +29,8 @@
 #### 3️⃣ **Scheduled Dust Cleanup**
 - 12 saatte bir otomatik çalışır
 - Tüm base currency'leri kontrol eder
-- 1 CAD altındaki dust'ları CAD'e çevirir
+- 2 CAD altındaki dust'ları CAD'e çevirir
+- Kraken Convert API ile minimum limit bypass
 - Detaylı rapor ve istatistik gönderir
 
 #### 4️⃣ **Orphaned Positions Cleanup**

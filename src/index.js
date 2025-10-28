@@ -749,8 +749,8 @@ async function autoCleanDust() {
           const ticker = await exchange.fetchTicker(symbol);
           const cadValue = balance.total * ticker.last;
           
-          // If dust (< 1 CAD), try to convert
-          if (cadValue < DUST_THRESHOLD_CAD && cadValue > 0.01) { // Minimum 1 cent to avoid errors
+          // If dust (< 2 CAD), try to convert
+          if (cadValue < DUST_THRESHOLD_CAD && cadValue > 0.001) { // Minimum 0.1 cent to avoid errors
             log(`🧹 Converting dust: ${balance.total.toFixed(8)} ${currency} (${cadValue.toFixed(2)} CAD)`, 'INFO');
             
             try {
