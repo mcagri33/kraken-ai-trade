@@ -489,13 +489,13 @@ function loadConfig() {
 
 /**
  * Record trade with balance tracking
- * @param {Object} tradeData - Trade data to record
+ * @param {Object} tradeData - Trade data to record (should include balance_before)
  * @returns {Promise<number>} Trade ID
  */
 async function recordTrade(tradeData) {
   try {
-    // Get current CAD balance before trade
-    const balanceBefore = await exchange.getRobustCADBalance();
+    // Use provided balance_before or fetch current if missing
+    const balanceBefore = tradeData.balance_before || await exchange.getRobustCADBalance();
     
     // Add balance tracking to trade data
     const tradeWithBalance = {
@@ -1115,12 +1115,18 @@ async function handleBuySignal(symbol, signal) {
       opened_at: new Date()
     };
     
+    // Get balance before trade for consistency
+    const balanceBefore = await exchange.getRobustCADBalance();
+    
     // Record trade with balance tracking
-    const tradeId = await recordTrade(position);
+    const tradeId = await recordTrade({
+      ...position,
+      balance_before: balanceBefore
+    });
     position.id = tradeId;
     
     // Add balance_before to position object for closePosition() access
-    position.balance_before = await exchange.getRobustCADBalance();
+    position.balance_before = balanceBefore;
     
     // Store in bot state
     botState.openPositions.set(symbol, position);
