@@ -6,9 +6,12 @@ import mysql from 'mysql2/promise';
 import { log, getCurrentDate, formatDate } from './utils.js';
 
 let pool = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 5000; // 5 seconds
 
 /**
- * Initialize database connection pool
+ * Initialize database connection pool with auto-reconnect
  * @param {Object} config - Database configuration
  * @returns {Promise<void>}
  */
@@ -22,16 +25,50 @@ export async function initDB(config) {
       database: config.database,
       waitForConnections: true,
       connectionLimit: 10,
-      queueLimit: 0
+      queueLimit: 0,
+      acquireTimeout: 60000,
+      timeout: 60000,
+      reconnect: true
     });
 
-    // Test connection
-    const conn = await pool.getConnection();
+    // Test connection with retry
+    await testConnection();
+    reconnectAttempts = 0;
     log('Database connected successfully', 'SUCCESS');
-    conn.release();
   } catch (error) {
     log(`Database connection error: ${error.message}`, 'ERROR');
-    throw error;
+    await handleReconnect(config);
+  }
+}
+
+/**
+ * Test database connection with retry mechanism
+ */
+async function testConnection() {
+  const conn = await pool.getConnection();
+  await conn.ping();
+  conn.release();
+}
+
+/**
+ * Handle database reconnection
+ */
+async function handleReconnect(config) {
+  if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    reconnectAttempts++;
+    log(`Attempting database reconnection (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`, 'WARN');
+    
+    await new Promise(resolve => setTimeout(resolve, RECONNECT_DELAY));
+    
+    try {
+      await initDB(config);
+    } catch (error) {
+      log(`Reconnection attempt ${reconnectAttempts} failed: ${error.message}`, 'ERROR');
+      await handleReconnect(config);
+    }
+  } else {
+    log('Max reconnection attempts reached. Database unavailable.', 'ERROR');
+    throw new Error('Database connection failed after maximum retry attempts');
   }
 }
 
@@ -294,7 +331,7 @@ export async function getLastClosedTradeTime() {
  * @returns {Promise<void>}
  */
 export async function updateDailySummary(day = getCurrentDate()) {
-  // Calculate metrics from closed trades
+  // Calculate metrics from closed trades including avg_trade_duration
   const query = `
     SELECT 
       COUNT(*) as trades,
@@ -302,7 +339,8 @@ export async function updateDailySummary(day = getCurrentDate()) {
       SUM(CASE WHEN pnl <= 0 THEN 1 ELSE 0 END) as losses,
       COALESCE(SUM(pnl), 0) as net_pnl,
       COALESCE(SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END), 0) as gross_profit,
-      COALESCE(SUM(CASE WHEN pnl < 0 THEN ABS(pnl) ELSE 0 END), 0) as gross_loss
+      COALESCE(SUM(CASE WHEN pnl < 0 THEN ABS(pnl) ELSE 0 END), 0) as gross_loss,
+      COALESCE(AVG(TIMESTAMPDIFF(MINUTE, opened_at, closed_at)), 0) as avg_trade_duration_minutes
     FROM trades 
     WHERE DATE(closed_at) = ? AND closed_at IS NOT NULL
   `;
@@ -338,8 +376,8 @@ export async function updateDailySummary(day = getCurrentDate()) {
   const upsertQuery = `
     INSERT INTO daily_summary 
       (day, trades, wins, losses, net_pnl, gross_profit, gross_loss, 
-       profit_factor, win_rate, max_drawdown, avg_win, avg_loss)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       profit_factor, win_rate, max_drawdown, avg_win, avg_loss, avg_trade_duration)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       trades = VALUES(trades),
       wins = VALUES(wins),
@@ -351,7 +389,8 @@ export async function updateDailySummary(day = getCurrentDate()) {
       win_rate = VALUES(win_rate),
       max_drawdown = VALUES(max_drawdown),
       avg_win = VALUES(avg_win),
-      avg_loss = VALUES(avg_loss)
+      avg_loss = VALUES(avg_loss),
+      avg_trade_duration = VALUES(avg_trade_duration)
   `;
   
   await pool.execute(upsertQuery, [
@@ -366,7 +405,8 @@ export async function updateDailySummary(day = getCurrentDate()) {
     winRate,
     maxDD,
     avgWin,
-    avgLoss
+    avgLoss,
+    data.avg_trade_duration_minutes
   ]);
 }
 
@@ -516,10 +556,17 @@ export async function migrateMissingBalanceBefore() {
     let skippedCount = 0;
     let errorCount = 0;
     
-    // Process trades in reverse chronological order (newest to oldest)
+    // Process trades in reverse chronological order (newest to oldest) - BATCH PROCESSING
     const reversedTrades = [...trades].reverse();
+    const BATCH_SIZE = 200;
+    let processedCount = 0;
     
-    for (const trade of reversedTrades) {
+    // Process in batches
+    for (let i = 0; i < reversedTrades.length; i += BATCH_SIZE) {
+      const batch = reversedTrades.slice(i, i + BATCH_SIZE);
+      
+      try {
+        for (const trade of batch) {
       try {
         // Skip if balance_before already exists
         const checkQuery = `SELECT balance_before FROM trades WHERE id = ?`;
@@ -559,17 +606,31 @@ export async function migrateMissingBalanceBefore() {
           trade.id
         ]);
         
-        log(`✅ Migrated trade ${trade.id}: balance_before=${calculatedBalanceBefore.toFixed(2)}, balance_after=${balanceAfter.toFixed(2)}`, 'DEBUG');
-        
-        // Update current balance for next iteration
-        currentBalance = calculatedBalanceBefore;
-        updatedCount++;
-        
-      } catch (error) {
-        log(`❌ Error migrating trade ${trade.id}: ${error.message}`, 'ERROR');
-        errorCount++;
+          log(`✅ Migrated trade ${trade.id}: balance_before=${calculatedBalanceBefore.toFixed(2)}, balance_after=${balanceAfter.toFixed(2)}`, 'DEBUG');
+          
+          // Update current balance for next iteration
+          currentBalance = calculatedBalanceBefore;
+          updatedCount++;
+          
+        } catch (error) {
+          log(`❌ Error migrating trade ${trade.id}: ${error.message}`, 'ERROR');
+          errorCount++;
+        }
       }
+      
+      processedCount += batch.length;
+      log(`📊 Processed batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(reversedTrades.length/BATCH_SIZE)}: ${processedCount}/${reversedTrades.length} trades`, 'INFO');
+      
+      // Small delay between batches to prevent overload
+      if (i + BATCH_SIZE < reversedTrades.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+    } catch (batchError) {
+      log(`❌ Error processing batch starting at ${i}: ${batchError.message}`, 'WARN');
+      // Continue with next batch
     }
+  }
     
     const result = {
       updated: updatedCount,

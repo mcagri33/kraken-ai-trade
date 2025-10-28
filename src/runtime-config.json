@@ -1,11 +1,52 @@
 {
-  "rsi_oversold": 35,           
-  "rsi_overbought": 65,        
-  "atr_low_pct": 0.01,          
-  "atr_high_pct": 2.0,          
-  "vol_z_min": -1.0,            
-  "tp_multiplier": 1.5,         
-  "sl_multiplier": 0.8,         
-  "last_optimized": null,
-  "optimization_history": []
+  "version": "2.1.0",
+  "name": "Adaptive Multi-Symbol Edition",
+  "symbols": ["BTC/CAD"],
+  "side_bias": "LONG_ONLY",
+  "strategy": {
+    "RSI_OVERSOLD": 34,
+    "RSI_OVERBOUGHT": 66,
+    "EMA_FAST": 20,
+    "EMA_SLOW": 50,
+    "EMA_REGIME": 200,
+    "SL_MULTIPLIER": 1.5,
+    "TP_MULTIPLIER": 2.4,
+    "ATR_MIN": 0.01,
+    "ATR_MAX": 2.0,
+    "VOLUME_THRESHOLD": 1.5,
+    "RISK_CAD": 20,
+    "MAX_DAILY_LOSS_CAD": -40,
+    "MAX_DAILY_TRADES": 10,
+    "COOLDOWN_MINUTES": 5,
+    "LOOP_INTERVAL_MS": 30000,
+    "TIME_EXIT_CANDLES": 45,
+    "MOMENTUM_CONFIRMATION": true,
+    "ADAPTIVE_TRAILING_STOP": true,
+    "ATR_TIGHTENING_THRESHOLD": 1.0,
+    "SL_TIGHTENING_FACTOR": 0.25
+  },
+  "ai": {
+    "learning_rate": 0.01,
+    "optimization_interval_hours": 6,
+    "min_trades_for_optimization": 5,
+    "confidence_normalization": true,
+    "sigmoid_scoring": true
+  },
+  "dust_management": {
+    "pnl_adjustment_threshold": 0.00001,
+    "immediate_cleanup_threshold": 0.0001,
+    "force_cleanup_threshold": 0.000001,
+    "scheduled_cleanup_threshold": 2.0,
+    "minimum_value": 0.001
+  },
+  "telegram": {
+    "anti_flood_cooldown": 10,
+    "message_split_threshold": 4000,
+    "heartbeat_interval_minutes": 60
+  },
+  "logging": {
+    "log_to_file": true,
+    "log_rotation": "daily",
+    "log_level": "INFO"
+  }
 }

@@ -12,6 +12,12 @@ let bot = null;
 let chatId = null;
 let isEnabled = false;
 let allowedUserIds = []; // Whitelist of user IDs
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 5000; // 5 seconds
+let userCooldowns = new Map(); // Anti-flood cooldown
+const ANTI_FLOOD_COOLDOWN = 10; // seconds
+const MESSAGE_SPLIT_THRESHOLD = 4000; // characters
 
 /**
  * Initialize Telegram bot
@@ -25,6 +31,18 @@ export async function initTelegram(config) {
   }
 
   try {
+    await initializeBot(config);
+  } catch (error) {
+    log(`Telegram initialization error: ${error.message}`, 'ERROR');
+    await handleReconnect(config);
+  }
+}
+
+/**
+ * Initialize bot with retry mechanism
+ */
+async function initializeBot(config) {
+  try {
     bot = new TelegramBot(config.botToken, { polling: true });
     chatId = config.chatId;
     
@@ -37,6 +55,7 @@ export async function initTelegram(config) {
     }
     
     isEnabled = true;
+    reconnectAttempts = 0;
 
     // Set up command handlers
     setupCommands();
@@ -47,19 +66,105 @@ export async function initTelegram(config) {
     log('Telegram bot initialized', 'SUCCESS');
     log(`Allowed users: ${allowedUserIds.join(', ')}`, 'INFO');
     await sendMessage('🤖 Kraken AI Trader started successfully!\n\nKomutları görmek için /help yazın veya menüyü açın.');
+    
   } catch (error) {
-    log(`Telegram initialization error: ${error.message}`, 'ERROR');
+    log(`Bot initialization failed: ${error.message}`, 'ERROR');
+    throw error;
+  }
+}
+
+/**
+ * Handle bot reconnection
+ */
+async function handleReconnect(config) {
+  if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    reconnectAttempts++;
+    log(`Attempting Telegram bot reconnection (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`, 'WARN');
+    
+    await new Promise(resolve => setTimeout(resolve, RECONNECT_DELAY));
+    
+    try {
+      await initializeBot(config);
+    } catch (error) {
+      log(`Reconnection attempt ${reconnectAttempts} failed: ${error.message}`, 'ERROR');
+      await handleReconnect(config);
+    }
+  } else {
+    log('Max Telegram reconnection attempts reached. Bot unavailable.', 'ERROR');
     isEnabled = false;
   }
 }
 
 /**
- * Check if user is authorized
+ * Check anti-flood cooldown
  * @param {number} userId - User ID
- * @returns {boolean} True if authorized
+ * @returns {boolean} True if user can send message
  */
-function isAuthorized(userId) {
-  return allowedUserIds.length === 0 || allowedUserIds.includes(userId);
+function checkAntiFlood(userId) {
+  const now = Date.now();
+  const lastMessage = userCooldowns.get(userId);
+  
+  if (lastMessage && (now - lastMessage) < (ANTI_FLOOD_COOLDOWN * 1000)) {
+    return false; // User is in cooldown
+  }
+  
+  userCooldowns.set(userId, now);
+  return true;
+}
+
+/**
+ * Split long messages into multiple parts
+ * @param {string} message - Message to split
+ * @returns {Array} Array of message parts
+ */
+function splitMessage(message) {
+  if (message.length <= MESSAGE_SPLIT_THRESHOLD) {
+    return [message];
+  }
+  
+  const parts = [];
+  let currentPart = '';
+  const lines = message.split('\n');
+  
+  for (const line of lines) {
+    if ((currentPart + line + '\n').length > MESSAGE_SPLIT_THRESHOLD) {
+      if (currentPart.trim()) {
+        parts.push(currentPart.trim());
+        currentPart = line + '\n';
+      } else {
+        // Single line is too long, split by words
+        const words = line.split(' ');
+        let currentLine = '';
+        
+        for (const word of words) {
+          if ((currentLine + word + ' ').length > MESSAGE_SPLIT_THRESHOLD) {
+            if (currentLine.trim()) {
+              parts.push(currentLine.trim());
+              currentLine = word + ' ';
+            } else {
+              // Single word is too long, split by characters
+              parts.push(word.substring(0, MESSAGE_SPLIT_THRESHOLD));
+              currentLine = word.substring(MESSAGE_SPLIT_THRESHOLD) + ' ';
+            }
+          } else {
+            currentLine += word + ' ';
+          }
+        }
+        
+        if (currentLine.trim()) {
+          currentPart = currentLine;
+        }
+      }
+    } else {
+      currentPart += line + '\n';
+    }
+  }
+  
+  if (currentPart.trim()) {
+    parts.push(currentPart.trim());
+  }
+  
+  return parts;
 }
 
 /**
@@ -95,6 +200,12 @@ function setupCommands() {
   bot.onText(/\/start/, async (msg) => {
     if (!isAuthorized(msg.from.id)) {
       bot.sendMessage(msg.chat.id, '⛔ Unauthorized');
+      return;
+    }
+    
+    // Check anti-flood cooldown
+    if (!checkAntiFlood(msg.from.id)) {
+      bot.sendMessage(msg.chat.id, `⏰ Please wait ${ANTI_FLOOD_COOLDOWN} seconds between commands.`);
       return;
     }
     
@@ -144,6 +255,12 @@ Hoş geldiniz! Bot aktif ve çalışıyor.
   bot.on('callback_query', async (query) => {
     if (!isAuthorized(query.from.id)) {
       bot.answerCallbackQuery(query.id, { text: '⛔ Unauthorized' });
+      return;
+    }
+    
+    // Check anti-flood cooldown
+    if (!checkAntiFlood(query.from.id)) {
+      bot.answerCallbackQuery(query.id, { text: `⏰ Please wait ${ANTI_FLOOD_COOLDOWN} seconds between commands.` });
       return;
     }
     
@@ -378,7 +495,23 @@ export async function sendMessage(message, options = {}) {
   if (!isEnabled || !bot || !chatId) return;
 
   try {
-    await bot.sendMessage(chatId, message, options);
+    // Split long messages
+    const messageParts = splitMessage(message);
+    
+    for (let i = 0; i < messageParts.length; i++) {
+      const part = messageParts[i];
+      
+      // Add part indicator for multi-part messages
+      const finalMessage = messageParts.length > 1 ? 
+        `[${i + 1}/${messageParts.length}]\n${part}` : part;
+      
+      await bot.sendMessage(chatId, finalMessage, options);
+      
+      // Small delay between parts to prevent rate limiting
+      if (i < messageParts.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
   } catch (error) {
     log(`Error sending Telegram message: ${error.message}`, 'ERROR');
   }
@@ -472,12 +605,17 @@ async function getStatusMessage() {
   const todayPnL = await db.getTodayPnL();
   const todayTradesCount = await db.getTodayClosedTradesCount();
   
-  // Get CAD balance from exchange
+  // Get CAD balance and current ticker price from exchange
   let cadBalance = { free: 0, used: 0, total: 0 };
+  let currentPrice = null;
   let balanceError = false;
   try {
     const exchangeModule = await import('./exchange.js');
     cadBalance = await exchangeModule.getBalance('CAD');
+    
+    // Get current BTC/CAD price
+    const ticker = await exchangeModule.fetchTicker('BTC/CAD');
+    currentPrice = ticker.last;
   } catch (error) {
     balanceError = true;
   }
@@ -492,6 +630,12 @@ async function getStatusMessage() {
     message += `Available: ${formatNumber(cadBalance.free, 2)} CAD\n`;
     message += `In Orders: ${formatNumber(cadBalance.used, 2)} CAD\n`;
     message += `Total: ${formatNumber(cadBalance.total, 2)} CAD\n\n`;
+  }
+  
+  // Current market price
+  if (currentPrice) {
+    message += `📈 *Current BTC/CAD Price*\n`;
+    message += `${formatNumber(currentPrice, 2)} CAD\n\n`;
   }
   
   // Today's performance
@@ -674,6 +818,12 @@ export async function sendHeartbeat(botState, status) {
       ? new Date(botState.lastTradeTime).toLocaleString("tr-TR")
       : "Henüz işlem yok";
 
+    // Calculate uptime
+    const uptimeMinutes = botState.startTime ? 
+      Math.floor((Date.now() - botState.startTime) / 60000) : 0;
+    const uptimeHours = Math.floor(uptimeMinutes / 60);
+    const uptimeMins = uptimeMinutes % 60;
+
     let msg = "";
     if (status === "ok") {
       msg += "🤖 *Kraken AI Trader – Durum Bildirimi*\n";
@@ -687,6 +837,7 @@ export async function sendHeartbeat(botState, status) {
     msg += `📊 Günlük PnL: ${pnl.toFixed(2)} CAD\n`;
     msg += `🧠 Adaptive: ${adaptive} | RSI ${rsiLow}/${rsiHigh}\n`;
     msg += `🔄 İşlemler: ${trades}/${maxTrades}\n`;
+    msg += `⏰ Uptime: ${uptimeHours}h ${uptimeMins}m\n`;
     msg += `🕒 Zaman: ${new Date().toLocaleString("tr-TR")}`;
 
     await sendMessage(msg, { parse_mode: 'Markdown' });

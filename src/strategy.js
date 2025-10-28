@@ -17,6 +17,61 @@ import { log, clamp } from './utils.js';
 const TIME_EXIT_CANDLES = 45;
 
 /**
+ * Calculate sigmoid score for smoother transitions
+ * @param {number} value - Input value
+ * @param {number} midpoint - Sigmoid midpoint (default: 0)
+ * @param {number} steepness - Sigmoid steepness (default: 1)
+ * @returns {number} Sigmoid score between 0 and 1
+ */
+function calculateSigmoidScore(value, midpoint = 0, steepness = 1) {
+  return 1 / (1 + Math.exp(-steepness * (value - midpoint)));
+}
+
+/**
+ * Calculate RSI score using sigmoid instead of linear mapping
+ * @param {number} rsi - RSI value
+ * @param {number} oversold - Oversold threshold
+ * @param {number} overbought - Overbought threshold
+ * @returns {number} RSI score between 0 and 1
+ */
+function calculateRSIScore(rsi, oversold, overbought) {
+  // Sigmoid mapping for smoother transitions
+  if (rsi < oversold) {
+    // Oversold: sigmoid from 0 to 1 as RSI approaches oversold
+    return calculateSigmoidScore(rsi, oversold, 0.2);
+  } else if (rsi > overbought) {
+    // Overbought: sigmoid from 1 to 0 as RSI approaches overbought
+    return 1 - calculateSigmoidScore(rsi, overbought, 0.2);
+  } else {
+    // Neutral zone: linear mapping
+    return 0.5;
+  }
+}
+
+/**
+ * Check momentum confirmation for RSI signals
+ * @param {number} rsi - Current RSI
+ * @param {Array} closes - Price closes array
+ * @param {number} ema20 - EMA20 value
+ * @param {number} oversold - Oversold threshold
+ * @returns {boolean} True if momentum confirms signal
+ */
+function checkMomentumConfirmation(rsi, closes, ema20, oversold) {
+  if (rsi >= oversold) return true; // No confirmation needed for non-oversold
+  
+  // Check if EMA20 is rising (momentum confirmation)
+  if (closes.length < 3) return true; // Not enough data
+  
+  const currentEMA = ema20;
+  const prevEMA = calculateEMA(closes.slice(0, -1), 20);
+  
+  if (!prevEMA) return true; // Fallback
+  
+  // EMA20 must be rising for momentum confirmation
+  return currentEMA > prevEMA;
+}
+
+/**
  * Calculate indicators from OHLCV data
  * @param {Array} ohlcv - OHLCV data
  * @returns {Object} Indicators object
@@ -142,11 +197,16 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
   // Trend: EMA20 > EMA50
   const trendIsBullish = ema20 > ema50;
   
-  // RSI oversold
+  // RSI oversold with momentum confirmation
   const isOversold = rsi < params.RSI_OVERSOLD;
+  const momentumConfirms = params.MOMENTUM_CONFIRMATION ? 
+    checkMomentumConfirmation(rsi, closesForSignal, ema20, params.RSI_OVERSOLD) : true;
   
   // RSI overbought
   const isOverbought = rsi > params.RSI_OVERBOUGHT;
+  
+  // Side bias check
+  const sideBias = params.SIDE_BIAS || 'LONG_ONLY';
   
   // Volatility in acceptable range
   const volatilityOK = atrPct >= params.ATR_LOW_PCT && atrPct <= params.ATR_HIGH_PCT;
@@ -160,16 +220,19 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
   const atrScore = volatilityOK ? 1 : 0;
   const volScore = volumeStrong ? 1 : 0;
 
-  // Calculate weighted confidence
-  const confidence = (
+  // Calculate weighted confidence with normalization
+  const rawConfidence = (
     rsiScore * weights.w_rsi +
     emaScore * weights.w_ema +
     atrScore * weights.w_atr +
     volScore * weights.w_vol
   );
+  
+  // Normalize confidence to [0,1] range
+  const totalWeight = weights.w_rsi + weights.w_ema + weights.w_atr + weights.w_vol;
+  const confidence = params.CONFIDENCE_NORMALIZATION ? rawConfidence / totalWeight : rawConfidence;
 
   // Use adaptive confidence threshold if available
-  const confidenceThreshold = botState?.strategy?.confidenceThreshold || params.CONFIDENCE_THRESHOLD || 0.65;
   const atrLowThreshold = botState?.strategy?.atrLowPct || params.ATR_LOW_PCT || 0.01;
 
   const signal = {
@@ -198,8 +261,10 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
       isOversold,
       isOverbought,
       volatilityOK,
-      volumeStrong
+      volumeStrong,
+      momentumConfirms
     },
+    volatilityLabel: atrPct < 1.0 ? 'LOW' : atrPct < 2.0 ? 'MED' : 'HIGH',
     action: null
   };
 
@@ -208,17 +273,31 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
       `oversold=${isOversold ? '✅' : '❌'}, overbought=${isOverbought ? '✅' : '❌'}, ` +
       `vol=${volumeStrong ? '✅' : '❌'}, atr=${volatilityOK ? '✅' : '❌'}, conf=${confidence.toFixed(3)}`, 'DEBUG');
 
-  // Determine action
-  // BUY signal: bullish regime + trend + oversold + volatility OK + volume strong + confidence >= threshold
+  // Determine action with side bias and momentum confirmation
+  const confidenceThreshold = botState?.strategy?.confidenceThreshold || params.CONFIDENCE_THRESHOLD || 0.65;
+  
+  // BUY signal conditions
+  const buyConditions = {
+    sideBiasOK: sideBias === 'LONG_ONLY' || sideBias === 'BOTH',
+    regimeOK: inBullishRegime,
+    trendOK: trendIsBullish,
+    oversoldOK: isOversold,
+    momentumOK: momentumConfirms,
+    volatilityOK: volatilityOK,
+    volumeOK: volumeStrong,
+    confidenceOK: confidence >= confidenceThreshold
+  };
   
   // Debug: Log why we're not buying when RSI is oversold
   if (isOversold) {
     const reasons = [];
-    if (!inBullishRegime) reasons.push(`❌ bearish regime (price ${closedPrice.toFixed(2)} < EMA200 ${ema200.toFixed(2)})`);
-    if (!trendIsBullish) reasons.push(`❌ bearish trend (EMA20 ${ema20.toFixed(2)} < EMA50 ${ema50.toFixed(2)})`);
-    if (!volatilityOK) reasons.push(`❌ volatility (ATR=${atrPct.toFixed(2)}%, range: ${params.ATR_LOW_PCT}-${params.ATR_HIGH_PCT}%)`);
-    if (!volumeStrong) reasons.push(`❌ volume weak (Z-score=${volZScore.toFixed(2)}, min: ${params.VOL_Z_MIN})`);
-    if (confidence < confidenceThreshold) reasons.push(`❌ low confidence (${confidence.toFixed(3)} < ${confidenceThreshold.toFixed(3)})`);
+    if (!buyConditions.sideBiasOK) reasons.push(`❌ side bias (${sideBias})`);
+    if (!buyConditions.regimeOK) reasons.push(`❌ bearish regime (price ${closedPrice.toFixed(2)} < EMA200 ${ema200.toFixed(2)})`);
+    if (!buyConditions.trendOK) reasons.push(`❌ bearish trend (EMA20 ${ema20.toFixed(2)} < EMA50 ${ema50.toFixed(2)})`);
+    if (!buyConditions.momentumOK) reasons.push(`❌ momentum not confirmed (EMA20 not rising)`);
+    if (!buyConditions.volatilityOK) reasons.push(`❌ volatility (ATR=${atrPct.toFixed(2)}%, range: ${params.ATR_MIN}-${params.ATR_MAX})`);
+    if (!buyConditions.volumeOK) reasons.push(`❌ volume weak (Z-score=${volZScore.toFixed(2)}, min: ${params.VOLUME_THRESHOLD})`);
+    if (!buyConditions.confidenceOK) reasons.push(`❌ low confidence (${confidence.toFixed(3)} < ${confidenceThreshold.toFixed(3)})`);
     
     if (reasons.length > 0) {
       log(`🔍 RSI oversold (${rsi.toFixed(1)}) but NO BUY: ${reasons.join(', ')}`, 'WARN');
@@ -227,19 +306,14 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
     }
   }
   
-  if (inBullishRegime && isOversold && volatilityOK && volumeStrong) {
-    log(`    🎯 BUY Check: confidence=${confidence.toFixed(3)} vs threshold=${confidenceThreshold.toFixed(3)}`, 'DEBUG');
-    if (confidence >= confidenceThreshold) {
-      signal.action = 'BUY';
-      log(`BUY signal generated: confidence=${confidence.toFixed(3)}, RSI=${rsi.toFixed(1)}`, 'SUCCESS');
-    } else {
-      log(`    ❌ Confidence too low: ${confidence.toFixed(3)} < ${confidenceThreshold.toFixed(3)}`, 'DEBUG');
-    }
+  // Generate BUY signal
+  if (Object.values(buyConditions).every(condition => condition)) {
+    signal.action = 'BUY';
+    log(`BUY signal generated: confidence=${confidence.toFixed(3)}, RSI=${rsi.toFixed(1)}, momentum=${momentumConfirms ? '✅' : '❌'}`, 'SUCCESS');
   }
   
-  // SELL signal: overbought or bearish conditions
-  // Note: In spot trading, SELL only matters if we have a position
-  if (isOverbought || !inBullishRegime) {
+  // SELL signal: overbought or bearish conditions (only for BOTH side bias)
+  if (sideBias === 'BOTH' && (isOverbought || !inBullishRegime)) {
     signal.action = 'SELL';
     // Only log if extreme conditions (reduce log spam)
     if (isOverbought && rsi > 70) {
@@ -357,20 +431,35 @@ export function checkExitConditions(position, currentPrice, candlesElapsed = nul
  * @param {number} riskReward - Risk/reward ratio reached (e.g., 1.0 = 1R profit)
  * @returns {number|null} New stop loss or null if no adjustment
  */
-export function calculateTrailingStop(position, currentPrice, riskReward = 1.0) {
+export function calculateTrailingStop(position, currentPrice, riskReward = 1.0, params = null) {
   if (!position || !position.entry_price || !position.stop_loss) return null;
   
   const entryPrice = position.entry_price;
   const originalRisk = entryPrice - position.stop_loss;
   
+  // Adaptive trailing stop based on volatility
+  let tighteningFactor = 0.1; // Default 0.1R buffer
+  
+  if (params?.ADAPTIVE_TRAILING_STOP && position.atr_pct !== undefined) {
+    const atrPct = position.atr_pct;
+    const threshold = params.ATR_TIGHTENING_THRESHOLD || 1.0;
+    const tightening = params.SL_TIGHTENING_FACTOR || 0.25;
+    
+    // If volatility is low, tighten the stop loss
+    if (atrPct < threshold) {
+      tighteningFactor = tightening; // 25% tighter stop
+      log(`Adaptive trailing: Low volatility (ATR=${atrPct.toFixed(2)}%), tightening SL by ${(tighteningFactor * 100).toFixed(0)}%`, 'INFO');
+    }
+  }
+  
   // Only trail if we've reached at least 1R profit
   if (riskReward >= 1.0) {
-    // Move stop to break-even + small buffer (0.1R)
-    const newStopLoss = entryPrice + (originalRisk * 0.1);
+    // Move stop to break-even + adaptive buffer
+    const newStopLoss = entryPrice + (originalRisk * tighteningFactor);
     
     // Only update if new SL is higher than current
     if (newStopLoss > position.stop_loss) {
-      log(`Trailing stop: ${position.stop_loss.toFixed(2)} -> ${newStopLoss.toFixed(2)}`, 'INFO');
+      log(`Trailing stop: ${position.stop_loss.toFixed(2)} -> ${newStopLoss.toFixed(2)} (${tighteningFactor.toFixed(2)}R buffer)`, 'INFO');
       return newStopLoss;
     }
   }

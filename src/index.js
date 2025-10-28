@@ -11,6 +11,7 @@ import * as exchange from './exchange.js';
 import * as strategy from './strategy.js';
 import * as ai from './ai.js';
 import * as telegram from './telegram.js';
+import { getState, setState, getSymbolState, setSymbolState, isTradingAllowed, updateSymbolDailyStats, resetDailyStats, getUptime } from './stateManager.js';
 
 // Dust Management Thresholds - Standardized
 const DUST_THRESHOLDS = {
@@ -21,30 +22,59 @@ const DUST_THRESHOLDS = {
   MINIMUM_VALUE: 0.001          // Minimum CAD value to avoid errors
 };
 
-// Global state
-let botState = {
-  isRunning: false,
-  currentWeights: null,
-  currentParams: null,
-  runtimeConfig: null,
-  lastOptimizationTime: null,
-  lastMarketSummaryTime: null,
-  lastLoopTime: null, // Heartbeat monitoring
-  lastRecordedBalance: null, // Real wallet balance tracking
-  recentSignals: [], // Son 10 sinyali sakla
-  openPositions: new Map(), // symbol -> position
-  tradingEnabled: true,
-  lastTradeTime: null,
-  lastTradePnL: 0,
-  dailyStats: {
-    date: getCurrentDate(),
-    tradesCount: 0,
-    realizedPnL: 0
-  },
-  dryRun: false
-};
+// Global error handlers
+process.on('unhandledRejection', (reason, promise) => {
+  log(`Unhandled Rejection at: ${promise}, reason: ${reason}`, 'ERROR');
+  console.error('Unhandled Rejection:', reason);
+});
 
-// Make botState globally accessible for Telegram commands
+process.on('uncaughtException', (error) => {
+  log(`Uncaught Exception: ${error.message}`, 'ERROR');
+  console.error('Uncaught Exception:', error);
+  
+  // Graceful shutdown
+  gracefulShutdown();
+});
+
+process.on('SIGINT', () => {
+  log('Received SIGINT, shutting down gracefully...', 'INFO');
+  gracefulShutdown();
+});
+
+process.on('SIGTERM', () => {
+  log('Received SIGTERM, shutting down gracefully...', 'INFO');
+  gracefulShutdown();
+});
+
+/**
+ * Graceful shutdown function
+ */
+async function gracefulShutdown() {
+  try {
+    log('🛑 Shutting down bot...', 'INFO');
+    setState('isRunning', false);
+    
+    // Close any open positions if needed
+    if (botState.openPositions.size > 0) {
+      log(`Closing ${botState.openPositions.size} open positions...`, 'WARN');
+      // Note: In production, you might want to close positions or leave them open
+    }
+    
+    // Send final heartbeat
+    await telegram.sendHeartbeat(botState, 'shutdown');
+    
+    log('✅ Bot shutdown complete', 'SUCCESS');
+    process.exit(0);
+  } catch (error) {
+    log(`Error during shutdown: ${error.message}`, 'ERROR');
+    process.exit(1);
+  }
+}
+
+// Get state from StateManager
+let botState = getState();
+
+// Make botState globally accessible for Telegram commands (backward compatibility)
 global.botState = botState;
 
 /**
@@ -918,18 +948,33 @@ async function mainLoop() {
       // Check if we need to send market summary (DISABLED - No more spam)
       // await checkAndSendMarketSummary();
       
-      // Single position rule: check if we have any crypto holdings
-      const hasPosition = await exchange.hasOpenPosition(1.0);
-      log(`🔍 Position check: ${hasPosition ? 'HAS POSITION' : 'NO POSITION'}`, 'DEBUG');
+      // Multi-symbol trading loop
+      const symbols = botState.runtimeConfig?.symbols || ['BTC/CAD'];
       
-      if (hasPosition) {
-        // We have a position - check exit conditions and trailing
-        log('📊 Managing open positions...', 'DEBUG');
-        await manageOpenPositions();
-      } else {
-        // No position - look for entry
-        log('🔎 Looking for entry signal...', 'DEBUG');
-        await lookForEntry();
+      for (const symbol of symbols) {
+        try {
+          // Check if trading is allowed for this symbol
+          if (!isTradingAllowed(symbol)) {
+            log(`🚫 Trading disabled for ${symbol}`, 'WARN');
+            continue;
+          }
+          
+          // Check if we have a position for this symbol
+          const hasPosition = botState.openPositions.has(symbol);
+          log(`🔍 ${symbol} position check: ${hasPosition ? 'HAS POSITION' : 'NO POSITION'}`, 'DEBUG');
+          
+          if (hasPosition) {
+            // We have a position - check exit conditions and trailing
+            log(`📊 Managing ${symbol} position...`, 'DEBUG');
+            await manageOpenPositions(symbol);
+          } else {
+            // No position - look for entry
+            log(`🔎 Looking for ${symbol} entry signal...`, 'DEBUG');
+            await lookForEntry(symbol);
+          }
+        } catch (symbolError) {
+          log(`Error processing ${symbol}: ${symbolError.message}`, 'ERROR');
+        }
       }
       
       // Update daily summary
@@ -998,8 +1043,9 @@ async function checkAndUpdateFeeRates() {
 
 /**
  * Manage open positions (exit checks + trailing)
+ * @param {string} symbol - Optional symbol to manage (for multi-symbol support)
  */
-async function manageOpenPositions() {
+async function manageOpenPositions(symbol = null) {
   // Auto-sync orphaned BTC positions (always enabled for BTC recovery)
   await autoSyncOrphanedPositions();
   
@@ -1017,13 +1063,18 @@ async function manageOpenPositions() {
     return;
   }
   
-  for (const [symbol, position] of botState.openPositions) {
+  // Get positions to manage (filter by symbol if specified)
+  const positionsToManage = symbol ? 
+    (botState.openPositions.has(symbol) ? [[symbol, botState.openPositions.get(symbol)]] : []) :
+    Array.from(botState.openPositions.entries());
+  
+  for (const [posSymbol, position] of positionsToManage) {
     try {
-      const ticker = await exchange.fetchTicker(symbol);
+      const ticker = await exchange.fetchTicker(posSymbol);
       const currentPrice = ticker.last;
       
       // Log position details for debugging
-      log(`📊 Managing ${symbol}: qty=${position.qty}, entry=${position.entry_price}, current=${currentPrice}`, 'DEBUG');
+      log(`📊 Managing ${posSymbol}: qty=${position.qty}, entry=${position.entry_price}, current=${currentPrice}`, 'DEBUG');
       
       // Calculate candles elapsed
       const candlesElapsed = strategy.calculateCandlesElapsed(position.opened_at, 1);
@@ -1033,47 +1084,50 @@ async function manageOpenPositions() {
       
       if (exitCheck.hit) {
         log(`🎯 Exit triggered: ${exitCheck.reason} at ${exitCheck.exitPrice}`, 'INFO');
-        await closePosition(symbol, exitCheck.exitPrice, exitCheck.reason);
+        await closePosition(posSymbol, exitCheck.exitPrice, exitCheck.reason);
         continue;
       }
       
-      // Trailing stop logic
+      // Trailing stop logic with adaptive parameters
       const rr = strategy.calculateRiskReward(position, currentPrice);
-      const newSL = strategy.calculateTrailingStop(position, currentPrice, rr);
+      const newSL = strategy.calculateTrailingStop(position, currentPrice, rr, botState.currentParams);
       
       if (newSL !== null) {
         position.stop_loss = newSL;
-        botState.openPositions.set(symbol, position);
-        log(`📈 Trailing SL updated for ${symbol}: ${newSL.toFixed(2)} (R:R ${rr.toFixed(2)})`, 'INFO');
+        botState.openPositions.set(posSymbol, position);
+        log(`📈 Trailing SL updated for ${posSymbol}: ${newSL.toFixed(2)} (R:R ${rr.toFixed(2)})`, 'INFO');
       }
       
     } catch (error) {
-      log(`Error managing position ${symbol}: ${error.message}`, 'ERROR');
+      log(`Error managing position ${posSymbol}: ${error.message}`, 'ERROR');
     }
   }
 }
 
 /**
  * Look for entry signals
+ * @param {string} symbol - Optional symbol to analyze (for multi-symbol support)
  */
-async function lookForEntry() {
+async function lookForEntry(symbol = null) {
   let bestSignal = null;
   let bestSymbol = null;
   
-  log(`📡 Scanning ${botState.currentParams.TRADING_SYMBOLS.length} symbols...`, 'DEBUG');
+  const symbolsToAnalyze = symbol ? [symbol] : (botState.runtimeConfig?.symbols || ['BTC/CAD']);
   
-  // Scan all symbols for best confidence
-  for (const symbol of botState.currentParams.TRADING_SYMBOLS) {
+  log(`📡 Scanning ${symbolsToAnalyze.length} symbols...`, 'DEBUG');
+  
+  // Scan symbols for best confidence
+  for (const sym of symbolsToAnalyze) {
     try {
-      log(`  🔎 Analyzing ${symbol}...`, 'DEBUG');
-      const ohlcv = await exchange.fetchOHLCV(symbol, botState.currentParams.TIMEFRAME, 220);
+      log(`  🔎 Analyzing ${sym}...`, 'DEBUG');
+      const ohlcv = await exchange.fetchOHLCV(sym, botState.currentParams.TIMEFRAME, 220);
       
       if (!ohlcv || ohlcv.length < 220) {
-        log(`Insufficient data for ${symbol}`, 'WARN');
+        log(`Insufficient data for ${sym}`, 'WARN');
         continue;
       }
       
-      log(`  📊 ${symbol}: Got ${ohlcv.length} candles, analyzing...`, 'DEBUG');
+      log(`  📊 ${sym}: Got ${ohlcv.length} candles, analyzing...`, 'DEBUG');
       
       // Calculate indicators first to get ATR
       const indicators = strategy.calculateIndicators(ohlcv);
@@ -1091,17 +1145,26 @@ async function lookForEntry() {
         log(`🔍 DEBUG: Not calling adaptScalperParams - indicators=${!!indicators}, ATR_PCT=${indicators?.ATR_PCT}`, 'DEBUG');
       }
       
+      // Get symbol-specific AI weights
+      const symbolState = getSymbolState(sym);
+      const weights = symbolState.aiWeights || botState.currentWeights || {
+        w_rsi: 0.3,
+        w_ema: 0.3,
+        w_atr: 0.2,
+        w_vol: 0.2
+      };
+      
       const signal = strategy.analyzeMarket(
         ohlcv,
         botState.currentParams,
-        botState.currentWeights,
+        weights,
         botState
       );
       
       // Sinyali kaydet (son 10 tanesini tut)
       if (signal) {
         botState.recentSignals.push({
-          symbol,
+          symbol: sym,
           action: signal.action,
           rsi: signal.indicators.rsi,
           confidence: signal.confidence,
@@ -1114,17 +1177,17 @@ async function lookForEntry() {
         }
         
         // Extreme RSI durumlarında özel bildirim
-        await notifyExtremeRSI(symbol, signal);
+        await notifyExtremeRSI(sym, signal);
       }
       
       if (signal && signal.action === 'BUY') {
         if (!bestSignal || signal.confidence > bestSignal.confidence) {
           bestSignal = signal;
-          bestSymbol = symbol;
+          bestSymbol = sym;
         }
       }
     } catch (error) {
-      log(`Error analyzing ${symbol}: ${error.message}`, 'ERROR');
+      log(`Error analyzing ${sym}: ${error.message}`, 'ERROR');
     }
   }
   

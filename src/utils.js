@@ -2,6 +2,28 @@
  * Utility functions for the trading bot
  */
 
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Log configuration
+const LOG_CONFIG = {
+  logToFile: process.env.LOG_TO_FILE === 'true' || false,
+  logLevel: process.env.LOG_LEVEL || 'INFO',
+  logRotation: process.env.LOG_ROTATION || 'daily'
+};
+
+const LOG_LEVELS = {
+  DEBUG: 0,
+  INFO: 1,
+  SUCCESS: 1,
+  WARN: 2,
+  ERROR: 3
+};
+
 /**
  * Sleep for a given number of milliseconds
  * @param {number} ms - Milliseconds to sleep
@@ -79,7 +101,40 @@ export function log(message, level = 'INFO') {
   };
   
   const color = colors[level] || colors.INFO;
+  
+  // Console output
   console.log(`${color}[${timestamp}] [${level}]${colors.RESET} ${message}`);
+  
+  // File logging
+  if (LOG_CONFIG.logToFile && LOG_LEVELS[level] >= LOG_LEVELS[LOG_CONFIG.logLevel]) {
+    logToFile(message, level, timestamp);
+  }
+}
+
+/**
+ * Log to file with rotation
+ * @param {string} message - Message to log
+ * @param {string} level - Log level
+ * @param {string} timestamp - Timestamp
+ */
+async function logToFile(message, level, timestamp) {
+  try {
+    const logDir = path.join(__dirname, '..', 'logs');
+    await fs.mkdir(logDir, { recursive: true });
+    
+    let logFile;
+    if (LOG_CONFIG.logRotation === 'daily') {
+      const date = new Date().toISOString().split('T')[0];
+      logFile = path.join(logDir, `kraken-ai-trader-${date}.log`);
+    } else {
+      logFile = path.join(logDir, 'kraken-ai-trader.log');
+    }
+    
+    const logEntry = `[${timestamp}] [${level}] ${message}\n`;
+    await fs.appendFile(logFile, logEntry);
+  } catch (error) {
+    console.error('Failed to write to log file:', error.message);
+  }
 }
 
 /**
