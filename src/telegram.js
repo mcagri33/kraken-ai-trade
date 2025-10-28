@@ -8,6 +8,14 @@ import { log, formatNumber, getCurrentDate } from './utils.js';
 import * as db from './db.js';
 import * as ai from './ai.js';
 
+// Authorization function
+function isAuthorized(userId) {
+  const allowed = process.env.TG_ALLOWED_USER_IDS
+    ? process.env.TG_ALLOWED_USER_IDS.split(',').map(x => x.trim())
+    : [];
+  return allowed.includes(String(userId));
+}
+
 let bot = null;
 let chatId = null;
 let isEnabled = false;

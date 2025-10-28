@@ -710,6 +710,12 @@ export async function getFeeRates() {
  */
 export async function convert(fromCurrency, toCurrency) {
   try {
+    // Check if Kraken convert API is supported by CCXT
+    if (!exchange.has['convert'] || typeof exchange.convertTrade !== 'function') {
+      log('⚠️ Kraken convert API not supported by CCXT. Skipping dust cleanup.', 'WARN');
+      return null;
+    }
+
     const symbol = `${fromCurrency}/${toCurrency}`;
     
     // Get current balance
@@ -728,7 +734,7 @@ export async function convert(fromCurrency, toCurrency) {
     try {
       // Method 1: Kraken'ın doğru ConvertTrade endpoint'i
       const convertTradeResult = await retryExchangeCall(async () => {
-        return await exchange.privatePostConvertTrade({
+        return await exchange.convertTrade({
           pair: symbol,
           type: 'sell',
           volume: balance.total.toString()
@@ -751,11 +757,7 @@ export async function convert(fromCurrency, toCurrency) {
     // Method 2: Kraken'ın Trade endpoint'i ile convert
     try {
       const tradeResult = await retryExchangeCall(async () => {
-        return await exchange.privatePostTrade({
-          pair: symbol,
-          type: 'sell',
-          ordertype: 'market',
-          volume: balance.total.toString(),
+        return await exchange.createOrder(symbol, 'market', 'sell', balance.total, null, null, {
           convert: true
         });
       });
@@ -776,7 +778,7 @@ export async function convert(fromCurrency, toCurrency) {
     // Method 3: Kraken'ın Convert endpoint'i (fallback)
     try {
       const convertResult = await retryExchangeCall(async () => {
-        return await exchange.privatePostConvert({
+        return await exchange.convert({
           pair: symbol,
           amount: balance.total.toString(),
           from: fromCurrency,

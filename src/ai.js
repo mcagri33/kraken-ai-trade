@@ -406,16 +406,42 @@ export async function loadRuntimeConfig() {
     const data = await fs.readFile(RUNTIME_CONFIG_FILE, 'utf8');
     const config = JSON.parse(data);
     log(`Runtime config loaded from ${RUNTIME_CONFIG_FILE}`, 'INFO');
+    
+    // Parse strategy config from new format
+    if (config.strategy) {
+      return {
+        symbols: config.symbols || ['BTC/CAD'],
+        rsi_oversold: config.strategy.RSI_OVERSOLD || 34,
+        rsi_overbought: config.strategy.RSI_OVERBOUGHT || 66,
+        atr_low_pct: config.strategy.ATR_MIN || 0.01,
+        atr_high_pct: config.strategy.ATR_MAX || 2.0,
+        tp_multiplier: config.strategy.TP_MULTIPLIER || 2.4,
+        sl_multiplier: config.strategy.SL_MULTIPLIER || 1.5,
+        vol_z_min: config.strategy.VOLUME_THRESHOLD || 1.5,
+        max_daily_trades: config.strategy.MAX_DAILY_TRADES || 10,
+        max_daily_loss_cad: config.strategy.MAX_DAILY_LOSS_CAD || -40,
+        risk_cad: config.strategy.RISK_CAD || 20,
+        last_optimized: null,
+        optimization_history: []
+      };
+    }
+    
+    // Fallback to old format
     return config;
   } catch (error) {
     log(`Runtime config not found, using defaults`, 'WARN');
     return {
-      rsi_oversold: 38,
-      rsi_overbought: 62,
-      atr_low_pct: 0.4,
+      symbols: ['BTC/CAD'],
+      rsi_oversold: 34,
+      rsi_overbought: 66,
+      atr_low_pct: 0.01,
       atr_high_pct: 2.0,
       tp_multiplier: 2.4,
-      sl_multiplier: 1.2,
+      sl_multiplier: 1.5,
+      vol_z_min: 1.5,
+      max_daily_trades: 10,
+      max_daily_loss_cad: -40,
+      risk_cad: 20,
       last_optimized: null,
       optimization_history: []
     };
