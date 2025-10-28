@@ -464,6 +464,15 @@ async function initialize() {
     };
     
     botState.tradingEnabled = config.ENABLE_TRADING && !botState.dryRun;
+    
+    // Debug logging for trading status
+    console.log('🔍 Trading Status Debug:', {
+      ENABLE_TRADING: config.ENABLE_TRADING,
+      DRY_RUN: botState.dryRun,
+      tradingEnabled: botState.tradingEnabled,
+      ENABLE_TRADING_env: process.env.ENABLE_TRADING,
+      DRY_RUN_env: process.env.DRY_RUN
+    });
     botState.lastOptimizationTime = Date.now();
     botState.lastMarketSummaryTime = Date.now();
     

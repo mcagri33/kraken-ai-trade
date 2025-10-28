@@ -149,6 +149,18 @@ class StateManager {
    * Check if trading is allowed for symbol
    */
   isTradingAllowed(symbol) {
+    // Global trading kontrolü
+    if (!this.state.tradingEnabled) {
+      console.log(`🚫 Trading disabled globally for ${symbol}`);
+      return false;
+    }
+    
+    if (this.state.dryRun) {
+      console.log(`🚫 Dry run mode active for ${symbol}`);
+      return false;
+    }
+    
+    // Symbol-specific state kontrolü
     const symbolState = this.getSymbolState(symbol);
     const dailyTrades = symbolState.dailyTrades || 0;
     const dailyPnL = symbolState.dailyPnL || 0;
@@ -164,15 +176,22 @@ class StateManager {
       symbolState: symbolState
     });
     
-    const result = (
-      this.state.tradingEnabled &&
-      !this.state.dryRun &&
-      dailyTrades < (this.state.currentParams?.MAX_DAILY_TRADES || 10) &&
-      dailyPnL > (this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40)
-    );
+    // Daily limits kontrolü
+    const maxDailyTrades = this.state.currentParams?.MAX_DAILY_TRADES || 10;
+    const maxDailyLoss = this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40;
     
-    console.log(`✅ Trading allowed for ${symbol}: ${result}`);
-    return result;
+    if (dailyTrades >= maxDailyTrades) {
+      console.log(`🚫 Daily trade limit reached for ${symbol}: ${dailyTrades}/${maxDailyTrades}`);
+      return false;
+    }
+    
+    if (dailyPnL <= maxDailyLoss) {
+      console.log(`🚫 Daily loss limit reached for ${symbol}: ${dailyPnL}/${maxDailyLoss}`);
+      return false;
+    }
+    
+    console.log(`✅ Trading allowed for ${symbol}`);
+    return true;
   }
 
   /**
