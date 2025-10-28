@@ -524,7 +524,7 @@ async function initialize() {
 async function buildParams(config, runtimeConfig) {
   return {
     RISK_CAD: config.RISK_CAD,
-    MAX_DAILY_LOSS_CAD: config.MAX_DAILY_LOSS_CAD,
+    MAX_DAILY_LOSS_CAD: runtimeConfig.max_daily_loss_cad || config.MAX_DAILY_LOSS_CAD,
     MAX_DAILY_TRADES: config.MAX_DAILY_TRADES,
     COOLDOWN_MINUTES: config.COOLDOWN_MINUTES,
     RSI_OVERSOLD: runtimeConfig.rsi_oversold || config.RSI_OVERSOLD,
