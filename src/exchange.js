@@ -6,6 +6,7 @@
 import ccxt from 'ccxt';
 import { log, sleep } from './utils.js';
 import { getState } from './stateManager.js';
+import { sendMessage } from './telegram.js';
 
 let exchange = null;
 let cachedCADMarkets = null;
@@ -153,6 +154,12 @@ export async function marketBuy(symbol, amount) {
     if (botState.dryRun) {
       const ticker = await exchange.fetchTicker(symbol);
       const price = ticker.last;
+      
+      // Telegram mesajı
+      const msg = `💡 Simulated BUY ${symbol}\n` +
+                  `Price: ${price.toFixed(2)} CAD | DRY-RUN MODE`;
+      await sendMessage(msg);
+      
       log(`[SIMULATION] BUY ${symbol} @ ${price.toFixed(2)} (dry-run mode)`, 'INFO');
       return { 
         id: `sim-buy-${Date.now()}`, 
@@ -196,6 +203,12 @@ export async function marketSell(symbol, amount) {
     if (botState.dryRun) {
       const ticker = await exchange.fetchTicker(symbol);
       const price = ticker.last;
+      
+      // Telegram mesajı
+      const msg = `💡 Simulated SELL ${symbol}\n` +
+                  `Price: ${price.toFixed(2)} CAD | DRY-RUN MODE`;
+      await sendMessage(msg);
+      
       log(`[SIMULATION] SELL ${symbol} @ ${price.toFixed(2)} (dry-run mode)`, 'INFO');
       return { 
         id: `sim-sell-${Date.now()}`, 

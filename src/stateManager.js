@@ -155,10 +155,7 @@ class StateManager {
       return false;
     }
     
-    if (this.state.dryRun) {
-      console.log(`🚫 Dry run mode active for ${symbol}`);
-      return false;
-    }
+    // Dry-run kontrolü artık exchange.js'de yapılıyor
     
     // Symbol-specific state kontrolü
     const symbolState = this.getSymbolState(symbol);
