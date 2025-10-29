@@ -78,16 +78,34 @@ function checkMomentumConfirmation(rsi, closes, ema20, oversold) {
  */
 export function calculateIndicators(ohlcv) {
   // Input validation
-  if (!ohlcv || !Array.isArray(ohlcv) || ohlcv.length < 30) {
+  if (!ohlcv || !Array.isArray(ohlcv) || ohlcv.length < 20) {
     log('Invalid OHLCV data: insufficient data or not an array', 'ERROR');
     return null;
   }
 
-  // Filter out invalid candles
-  ohlcv = ohlcv.filter(c => c && c.length === 6 && c.every(v => v !== null && !isNaN(v)));
-  
-  if (ohlcv.length < 30) {
-    log('Invalid OHLCV data: insufficient valid candles after filtering', 'ERROR');
+  // Log input length
+  log(`[DEBUG] OHLCV before filtering: ${ohlcv?.length || 0} candles`, 'DEBUG');
+
+  // Step 1: Basic structural check
+  ohlcv = (ohlcv || []).filter(c => Array.isArray(c) && c.length >= 6);
+
+  // Step 2: Esnek veri kontrolü
+  ohlcv = ohlcv.filter(c => {
+    const [timestamp, open, high, low, close, volume] = c;
+    // yalnızca kritik alanlarda kontrol (open, close, volume)
+    return (
+      isFinite(open) && open > 0 &&
+      isFinite(close) && close > 0 &&
+      isFinite(volume) && volume >= 0
+    );
+  });
+
+  // Log post-filtering result
+  log(`[DEBUG] OHLCV after filtering: ${ohlcv.length} valid candles`, 'DEBUG');
+
+  // Step 3: Minimum threshold
+  if (ohlcv.length < 20) {
+    log(`Invalid OHLCV data: insufficient valid candles after filtering (${ohlcv.length})`, 'WARN');
     return null;
   }
   
