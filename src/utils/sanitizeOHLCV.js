@@ -45,22 +45,7 @@ export function sanitizeOHLCV(ohlcv = []) {
   const validCandles = cleaned.filter(c => c[4] > 0);
   const invalidCount = ohlcv.length - validCandles.length;
 
-  if (validCandles.length < 10) {
-    console.warn(`[WARN] OHLCV too short after cleaning (${validCandles.length})`);
-
-    const isDryRun = process.env.DRY_RUN === "true";
-    if (isDryRun) {
-      console.warn(`[WARN] DRY-RUN continuity mode active — generating synthetic candles.`);
-      const base = lastValidClose || 100000;
-      for (let i = validCandles.length; i < 30; i++) {
-        const ts = Date.now() - (30 - i) * 60_000;
-        validCandles.push([ts, base, base, base, base, 0]);
-      }
-    } else {
-      console.error(`[ERROR] OHLCV insufficient and DRY-RUN disabled — skipping symbol.`);
-      return [];
-    }
-  }
+  // Continuity mode artık calculateIndicators içinde yapılıyor
 
   // NaN ve Infinity yakalayıcısı
   const finalCandles = validCandles.filter(c => c.every(v => isFinite(v)));
