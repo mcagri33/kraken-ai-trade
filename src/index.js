@@ -1027,12 +1027,20 @@ function checkDailyLimits() {
   }
   
   // Check if daily PnL has reached the loss limit
-  if (realizedPnL <= -maxDailyLoss) {
-    log(`🚫 Daily loss limit reached: ${realizedPnL.toFixed(2)}/${-maxDailyLoss} CAD`, 'WARN');
-    return false;
-  }
+  // We want to stop trading when PnL <= -maxDailyLoss (e.g., PnL <= -40)
+  const lossThreshold = -maxDailyLoss;
+  const lossCheckResult = realizedPnL <= lossThreshold;
   
-  return true;
+  // Debug log for the condition evaluation
+  log(`[DEBUG] Daily loss check: ${realizedPnL} <= ${lossThreshold} ? ${lossCheckResult}`, 'DEBUG');
+  
+  if (lossCheckResult) {
+    log(`🚫 Daily loss limit reached: ${realizedPnL.toFixed(2)}/${lossThreshold} CAD`, 'WARN');
+    return false;
+  } else {
+    log(`✅ Daily loss within safe range: ${realizedPnL.toFixed(2)}/${maxDailyLoss}`, 'INFO');
+    return true;
+  }
 }
 
 /**
