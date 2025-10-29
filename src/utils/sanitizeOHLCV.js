@@ -33,10 +33,10 @@ export function sanitizeOHLCV(ohlcv = []) {
         firstValidFound = true;
       }
 
-      // Eksik open/high/low varsa normalize et
+      // Eksik open/high/low varsa normalize et (performans iyileştirmesi)
       o = isFinite(o) && o > 0 ? o : cl;
-      h = isFinite(h) && h > 0 ? h : Math.max(o, cl);
-      l = isFinite(l) && l > 0 ? l : Math.min(o, cl);
+      h = isFinite(h) && h > 0 ? h : (o > cl ? o : cl);
+      l = isFinite(l) && l > 0 ? l : (o < cl ? o : cl);
       v = isFinite(v) && v >= 0 ? v : 0;
 
       return [t, o, h, l, cl, v];
@@ -46,17 +46,27 @@ export function sanitizeOHLCV(ohlcv = []) {
   const invalidCount = ohlcv.length - validCandles.length;
 
   if (validCandles.length < 10) {
-    console.warn(`[WARN] OHLCV too short after cleaning (${validCandles.length}) — forcing continuity mode`);
-    // Eğer hâlâ 10'dan az mum varsa, sentetik continuity oluştur
-    const base = lastValidClose || 100000;
-    for (let i = validCandles.length; i < 30; i++) {
-      const ts = Date.now() - (30 - i) * 60_000;
-      validCandles.push([ts, base, base, base, base, 0]);
+    console.warn(`[WARN] OHLCV too short after cleaning (${validCandles.length})`);
+
+    const isDryRun = process.env.DRY_RUN === "true";
+    if (isDryRun) {
+      console.warn(`[WARN] DRY-RUN continuity mode active — generating synthetic candles.`);
+      const base = lastValidClose || 100000;
+      for (let i = validCandles.length; i < 30; i++) {
+        const ts = Date.now() - (30 - i) * 60_000;
+        validCandles.push([ts, base, base, base, base, 0]);
+      }
+    } else {
+      console.error(`[ERROR] OHLCV insufficient and DRY-RUN disabled — skipping symbol.`);
+      return [];
     }
   }
 
-  console.log(`[DEBUG] OHLCV after filtering: ${validCandles.length} valid candles`);
-  console.log(`[INFO] Filter removed ${invalidCount} invalid candles (${validCandles.length}/${ohlcv.length} valid)`);
+  // NaN ve Infinity yakalayıcısı
+  const finalCandles = validCandles.filter(c => c.every(v => isFinite(v)));
 
-  return validCandles;
+  console.log(`[DEBUG] OHLCV after filtering: ${finalCandles.length} valid candles`);
+  console.log(`[INFO] Filter removed ${invalidCount} invalid candles (${finalCandles.length}/${ohlcv.length} valid)`);
+
+  return finalCandles;
 }

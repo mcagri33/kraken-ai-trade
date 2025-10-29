@@ -95,7 +95,15 @@ export function calculateATR(ohlc, period = 14) {
   }
   
   const recentTR = trueRanges.slice(-period);
-  return average(recentTR);
+  let atr = average(recentTR);
+  
+  // ATR fallback guard
+  if (!atr || !isFinite(atr) || atr <= 0) {
+    console.warn(`[WARN] ATR invalid (${atr}) — using fallback 0.01`);
+    atr = 0.01; // Minimum ATR fallback
+  }
+  
+  return atr;
 }
 
 /**
@@ -109,7 +117,13 @@ export function calculateATRPercent(ohlc, period = 14) {
   if (atr === null) return null;
   
   const currentPrice = ohlc[ohlc.length - 1].close;
-  return (atr / currentPrice) * 100;
+  
+  // ATR percentage fallback guard
+  const atrPct = isFinite(atr) && atr > 0 && isFinite(currentPrice) && currentPrice > 0 
+    ? (atr / currentPrice) * 100 
+    : 0.01;
+  
+  return atrPct;
 }
 
 /**
