@@ -171,21 +171,30 @@ class StateManager {
       dailyPnL,
       maxDailyLoss: this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40,
       symbolState: symbolState,
-      lossCheck: `${dailyPnL} <= ${this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40} = ${dailyPnL <= (this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40)}`
+      lossCheck: `${dailyPnL} <= -${Math.abs(this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40)} = ${dailyPnL <= -Math.abs(this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40)}`
     });
     
     // Daily limits kontrolü
     const maxDailyTrades = this.state.currentParams?.MAX_DAILY_TRADES || 10;
-    const maxDailyLoss = this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40;
+    const rawMaxDailyLoss = this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40;
+    const maxDailyLoss = Math.abs(rawMaxDailyLoss); // Normalize to positive
+    
+    // Debug log for the condition evaluation
+    const lossThreshold = -maxDailyLoss;
+    const lossLimitBreached = dailyPnL <= lossThreshold;
+    
+    console.log(`[DEBUG] Daily loss check: ${dailyPnL} <= ${lossThreshold} ? ${lossLimitBreached}`);
     
     if (dailyTrades >= maxDailyTrades) {
       console.log(`🚫 Daily trade limit reached for ${symbol}: ${dailyTrades}/${maxDailyTrades}`);
       return false;
     }
     
-    if (dailyPnL <= maxDailyLoss) {
-      console.log(`🚫 Daily loss limit reached for ${symbol}: ${dailyPnL}/${maxDailyLoss}`);
+    if (lossLimitBreached) {
+      console.log(`🚫 Daily loss limit reached for ${symbol}: ${dailyPnL}/${lossThreshold}`);
       return false;
+    } else {
+      console.log(`✅ Daily loss within safe range: ${dailyPnL}/${maxDailyLoss}`);
     }
     
     console.log(`✅ Trading allowed for ${symbol}`);
