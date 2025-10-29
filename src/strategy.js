@@ -87,7 +87,7 @@ export function calculateIndicators(ohlcv) {
   // Kraken-specific sanitization
   ohlcv = sanitizeOHLCV(ohlcv);
 
-  if (!ohlcv || ohlcv.length < 5) {
+  if (!ohlcv || ohlcv.length < 5 || ohlcv.filter(c => c.close > 0).length < 5) {
     log(`[WARN] OHLCV too short after cleaning (${ohlcv?.length || 0}) — forcing continuity mode`, 'WARN');
     // Continuity mode: 30 sentetik mum oluştur
     const base = 100000;
