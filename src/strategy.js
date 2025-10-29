@@ -125,27 +125,24 @@ export function calculateIndicators(ohlcv) {
   if (!ema50 || isNaN(ema50)) ema50 = close;
   if (!ema200 || isNaN(ema200)) ema200 = close;
   // ATR uyarı spam'ını önlemek için flag sistemi
-  if (!global.atrWarningShown) global.atrWarningShown = false;
-
+  const botState = getState();
   if (!atr || isNaN(atr) || atr <= 0) {
-    if (!global.atrWarningShown) {
+    if (!botState.warningFlags.atrWarningShown) {
       console.warn(`[WARN] ATR invalid (${atr}) — using fallback 0.01`);
-      global.atrWarningShown = true;
+      setState('warningFlags', { ...botState.warningFlags, atrWarningShown: true });
     }
     atr = 0.01;
   }
 
   // ATR% güvenli hesaplama
-  if (!global.atrPctWarningShown) global.atrPctWarningShown = false;
-
   if (!atrPct || isNaN(atrPct) || atrPct <= 0) {
     if (isFinite(atr) && atr > 0 && isFinite(close) && close > 0) {
       atrPct = (atr / close) * 100;
     }
     if (!atrPct || isNaN(atrPct) || atrPct <= 0) {
-      if (!global.atrPctWarningShown) {
+      if (!botState.warningFlags.atrPctWarningShown) {
         console.warn(`[WARN] ATR_PCT invalid (${atrPct}) — using safe fallback 0.01`);
-        global.atrPctWarningShown = true;
+        setState('warningFlags', { ...botState.warningFlags, atrPctWarningShown: true });
       }
       atrPct = 0.01;
     }

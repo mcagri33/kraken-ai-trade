@@ -36,6 +36,10 @@ class StateManager {
       dryRun: false,
       feeRates: { taker: 0.0026, maker: 0.0016 },
       emergencyFlat: false, // Emergency flat flag
+      warningFlags: {
+        atrWarningShown: false,
+        atrPctWarningShown: false
+      },
       symbolStates: new Map(), // Multi-symbol support
       startTime: Date.now()
     };
