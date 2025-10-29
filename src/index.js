@@ -522,9 +522,16 @@ async function initialize() {
  * Build parameters from config and runtime config
  */
 async function buildParams(config, runtimeConfig) {
+  // Normalize daily loss limit (ensure it's positive)
+  const rawMaxDailyLoss = runtimeConfig.max_daily_loss_cad || config.MAX_DAILY_LOSS_CAD;
+  const normalizedMaxDailyLoss = Math.abs(rawMaxDailyLoss);
+  
+  // Log normalized config
+  log(`[CONFIG] Using normalized daily loss limit: ${normalizedMaxDailyLoss} CAD`, 'INFO');
+  
   return {
     RISK_CAD: config.RISK_CAD,
-    MAX_DAILY_LOSS_CAD: runtimeConfig.max_daily_loss_cad || config.MAX_DAILY_LOSS_CAD,
+    MAX_DAILY_LOSS_CAD: normalizedMaxDailyLoss,
     MAX_DAILY_TRADES: config.MAX_DAILY_TRADES,
     COOLDOWN_MINUTES: config.COOLDOWN_MINUTES,
     RSI_OVERSOLD: runtimeConfig.rsi_oversold || config.RSI_OVERSOLD,
@@ -1011,11 +1018,17 @@ function checkDailyLimits() {
   const { tradesCount, realizedPnL } = botState.dailyStats;
   const { MAX_DAILY_TRADES, MAX_DAILY_LOSS_CAD } = botState.currentParams;
   
+  // Normalize daily loss limit (ensure it's positive)
+  const maxDailyLoss = Math.abs(MAX_DAILY_LOSS_CAD);
+  
   if (tradesCount >= MAX_DAILY_TRADES) {
+    log(`🚫 Daily trade limit reached: ${tradesCount}/${MAX_DAILY_TRADES}`, 'WARN');
     return false;
   }
   
-  if (realizedPnL <= -MAX_DAILY_LOSS_CAD) {
+  // Check if daily PnL has reached the loss limit
+  if (realizedPnL <= -maxDailyLoss) {
+    log(`🚫 Daily loss limit reached: ${realizedPnL.toFixed(2)}/${-maxDailyLoss} CAD`, 'WARN');
     return false;
   }
   
