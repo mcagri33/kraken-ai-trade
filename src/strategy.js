@@ -102,7 +102,7 @@ export function calculateIndicators(ohlcv) {
   const ema200 = calculateEMA(closes, 200);
   const atr = calculateATR(ohlcv, 14);
   const atrPct = calculateATRPercent(ohlcv, 14) || 0.01; // Fallback for ATR_PCT
-  const volZScore = calculateZScore(volumes, 20);
+  const volZScore = calculateZScore(volumes, 20) || 0; // Fallback for volume Z-Score
   
   // Validate calculated indicators (atrPct artık fallback ile 0.01 olacak, kontrol etmeye gerek yok)
   if (!rsi || !ema20 || !ema50 || !atr || !volZScore) {
@@ -175,7 +175,7 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
   const rsi = calculateRSI(closesForSignal, 14);
   const atrPct = calculateATRPercent(ohlcvForSignal, 14) || 0.01; // Fallback for ATR_PCT
   const atr = calculateATR(ohlcvForSignal, 14);
-  const volZScore = calculateZScore(volumesForSignal, 20);
+  const volZScore = calculateZScore(volumesForSignal, 20) || 0; // Fallback for volume Z-Score
 
   // Validate all indicators before proceeding
   if (ema20 === null || ema50 === null || ema200 === null || 
