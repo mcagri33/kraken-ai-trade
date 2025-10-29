@@ -13,6 +13,7 @@ import {
 } from './indicators.js';
 import { log, clamp } from './utils.js';
 import { sanitizeOHLCV } from './utils/sanitizeOHLCV.js';
+import { getState, setState } from './stateManager.js';
 
 // Time-based exit: close position if no TP/SL hit within this many candles
 const TIME_EXIT_CANDLES = 45;
@@ -102,9 +103,9 @@ export function calculateIndicators(ohlcv) {
     log(`[WARN] DRY-RUN continuity mode active — generating synthetic candles.`, 'WARN');
   }
 
-  // Extract arrays
-  const closes = ohlcv.map(c => c.close || c[4] || 0);
-  const volumes = ohlcv.map(c => c.volume || c[5] || 0);
+  // Extract arrays (sanitizeOHLCV artık object format döndürüyor)
+  const closes = ohlcv.map(c => c.close);
+  const volumes = ohlcv.map(c => c.volume);
   const close = closes[closes.length - 1] || 1;
 
   // Calculate indicators with guards
@@ -156,10 +157,10 @@ export function calculateIndicators(ohlcv) {
     const val = calculateATRPercent(ohlcv.slice(0, i + 1), 14);
     if (val && isFinite(val)) atrSeries.push(val);
   }
-  const avgATRPct = atrSeries.length > 0
-    ? atrSeries.reduce((a, b) => a + b, 0) / atrSeries.length
+  const avgATRPct = atrSeries.length > 0 
+    ? atrSeries.reduce((a, b) => a + b, 0) / atrSeries.length 
     : atrPct;
-
+  
   // Return final indicators safely
   return {
     rsi: Array.isArray(rsi) ? rsi[rsi.length - 1] : rsi,
@@ -348,7 +349,7 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
   
   // Generate BUY signal
   if (Object.values(buyConditions).every(condition => condition)) {
-    signal.action = 'BUY';
+      signal.action = 'BUY';
     log(`BUY signal generated: confidence=${confidence.toFixed(3)}, RSI=${rsi.toFixed(1)}, momentum=${momentumConfirms ? '✅' : '❌'}`, 'SUCCESS');
   }
   
