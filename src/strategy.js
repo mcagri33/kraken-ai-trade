@@ -12,6 +12,7 @@ import {
   calculateATR
 } from './indicators.js';
 import { log, clamp } from './utils.js';
+import { sanitizeOHLCV } from './utils/sanitizeOHLCV.js';
 
 // Time-based exit: close position if no TP/SL hit within this many candles
 const TIME_EXIT_CANDLES = 45;
@@ -83,27 +84,9 @@ export function calculateIndicators(ohlcv) {
     return null;
   }
 
-  // Log input length
-  log(`[DEBUG] OHLCV before filtering: ${ohlcv?.length || 0} candles`, 'DEBUG');
-
-  // Step 1: Basic structural check
-  ohlcv = (ohlcv || []).filter(c => Array.isArray(c) && c.length >= 6);
-
-  // Step 2: Esnek veri kontrolü
-  ohlcv = ohlcv.filter(c => {
-    const [timestamp, open, high, low, close, volume] = c;
-    // yalnızca kritik alanlarda kontrol (open, close, volume)
-    return (
-      isFinite(open) && open > 0 &&
-      isFinite(close) && close > 0 &&
-      isFinite(volume) && volume >= 0
-    );
-  });
-
-  // Log post-filtering result
-  log(`[DEBUG] OHLCV after filtering: ${ohlcv.length} valid candles`, 'DEBUG');
-
-  // Step 3: Minimum threshold
+  // Kraken-specific sanitization
+  ohlcv = sanitizeOHLCV(ohlcv);
+  
   if (ohlcv.length < 20) {
     log(`Invalid OHLCV data: insufficient valid candles after filtering (${ohlcv.length})`, 'WARN');
     return null;
