@@ -101,7 +101,7 @@ export function calculateIndicators(ohlcv) {
   const ema50 = calculateEMA(closes, 50);
   const ema200 = calculateEMA(closes, 200);
   const atr = calculateATR(ohlcv, 14);
-  const atrPct = calculateATRPercent(ohlcv, 14);
+  const atrPct = calculateATRPercent(ohlcv, 14) || 0.01; // Fallback for ATR_PCT
   const volZScore = calculateZScore(volumes, 20);
   
   // Validate calculated indicators
@@ -173,7 +173,7 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
   const ema50 = calculateEMA(closesForSignal, params.EMA_SLOW);
   const ema200 = calculateEMA(closesForSignal, params.EMA_REGIME);
   const rsi = calculateRSI(closesForSignal, 14);
-  const atrPct = calculateATRPercent(ohlcvForSignal, 14);
+  const atrPct = calculateATRPercent(ohlcvForSignal, 14) || 0.01; // Fallback for ATR_PCT
   const atr = calculateATR(ohlcvForSignal, 14);
   const volZScore = calculateZScore(volumesForSignal, 20);
 
