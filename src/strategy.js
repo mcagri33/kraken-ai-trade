@@ -104,8 +104,8 @@ export function calculateIndicators(ohlcv) {
   const atrPct = calculateATRPercent(ohlcv, 14) || 0.01; // Fallback for ATR_PCT
   const volZScore = calculateZScore(volumes, 20);
   
-  // Validate calculated indicators
-  if (!rsi || !ema20 || !ema50 || !atr || !atrPct || !volZScore) {
+  // Validate calculated indicators (atrPct artık fallback ile 0.01 olacak, kontrol etmeye gerek yok)
+  if (!rsi || !ema20 || !ema50 || !atr || !volZScore) {
     log('Indicator calculation failed: one or more indicators returned null', 'ERROR');
     return null;
   }
