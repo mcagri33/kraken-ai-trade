@@ -5,8 +5,10 @@
 
 import TelegramBot from 'node-telegram-bot-api';
 import { log, formatNumber, getCurrentDate } from './utils.js';
+import { getState, setState } from './stateManager.js';
 import * as db from './db.js';
 import * as ai from './ai.js';
+import * as exchange from './exchange.js';
 
 // Authorization function
 function isAuthorized(userId) {
@@ -299,7 +301,7 @@ Hoş geldiniz! Bot aktif ve çalışıyor.
             bot.sendMessage(chatId, 
               `⚠️ Emergency flat requested!\n${openTrades.length} position(s) marked for closure.`
             );
-            global.emergencyFlat = true;
+            setState('emergencyFlat', true);
           }
           break;
         case 'cmd_help':
@@ -430,7 +432,7 @@ ${stats.migrationNeeded ?
           `Bot will close positions in next iteration.`
         );
         // Set a flag that main loop can check
-        global.emergencyFlat = true;
+        setState('emergencyFlat', true);
       }
     } catch (error) {
       bot.sendMessage(msg.chat.id, `Error: ${error.message}`);
@@ -618,11 +620,10 @@ async function getStatusMessage() {
   let currentPrice = null;
   let balanceError = false;
   try {
-    const exchangeModule = await import('./exchange.js');
-    cadBalance = await exchangeModule.getBalance('CAD');
+    cadBalance = await exchange.getBalance('CAD');
     
     // Get current BTC/CAD price
-    const ticker = await exchangeModule.fetchTicker('BTC/CAD');
+    const ticker = await exchange.fetchTicker('BTC/CAD');
     currentPrice = ticker.last;
   } catch (error) {
     balanceError = true;
@@ -745,7 +746,7 @@ async function getAIStatusMessage() {
   
   // Adaptive Parameters
   message += `🧠 *Adaptive Scalper Mode*\n`;
-  const strat = global.botState?.strategy;
+  const strat = getState()?.strategy;
   const adaptiveFlag = strat?.adaptiveMode || (typeof strat?.confidenceThreshold !== 'undefined' ? 'ON' : 'OFF');
   message += `Adaptive: *${adaptiveFlag}*\n`;
   message += `ATR Low PCT: ${typeof strat?.atrLowPct === 'number' ? strat.atrLowPct.toFixed(3) : 'N/A'}\n`;

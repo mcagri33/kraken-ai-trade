@@ -74,8 +74,7 @@ async function gracefulShutdown() {
 // Get state from StateManager
 let botState = getState();
 
-// Make botState globally accessible for Telegram commands (backward compatibility)
-global.botState = botState;
+// Note: botState is now managed through stateManager.js
 
 /**
  * Fee estimation fallback system
@@ -930,9 +929,9 @@ async function mainLoop() {
       await checkDayReset();
       
       // Check for emergency flat
-      if (global.emergencyFlat) {
+      if (botState.emergencyFlat) {
         await handleEmergencyFlat();
-        global.emergencyFlat = false;
+        setState('emergencyFlat', false);
       }
       
       // Check daily limits

@@ -35,6 +35,7 @@ class StateManager {
       },
       dryRun: false,
       feeRates: { taker: 0.0026, maker: 0.0016 },
+      emergencyFlat: false, // Emergency flat flag
       symbolStates: new Map(), // Multi-symbol support
       startTime: Date.now()
     };
@@ -162,6 +163,10 @@ class StateManager {
     const dailyTrades = symbolState.dailyTrades || 0;
     const dailyPnL = symbolState.dailyPnL || 0;
     
+    // Symbol-specific daily loss limit (if configured)
+    const symbolLimits = this.state.runtimeConfig?.symbol_limits || {};
+    const symbolSpecificLoss = symbolLimits[symbol];
+    
     // Debug logging
     console.log(`🔍 Trading check for ${symbol}:`, {
       tradingEnabled: this.state.tradingEnabled,
@@ -169,14 +174,16 @@ class StateManager {
       dailyTrades,
       maxDailyTrades: this.state.currentParams?.MAX_DAILY_TRADES || 10,
       dailyPnL,
-      maxDailyLoss: this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40,
+      maxDailyLoss: symbolSpecificLoss || this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40,
+      symbolSpecificLoss: symbolSpecificLoss || 'using global',
       symbolState: symbolState,
-      lossCheck: `${dailyPnL} <= -${Math.abs(this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40)} = ${dailyPnL <= -Math.abs(this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40)}`
+      lossCheck: `${dailyPnL} <= -${Math.abs(symbolSpecificLoss || this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40)} = ${dailyPnL <= -Math.abs(symbolSpecificLoss || this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40)}`
     });
     
     // Daily limits kontrolü
     const maxDailyTrades = this.state.currentParams?.MAX_DAILY_TRADES || 10;
-    const rawMaxDailyLoss = this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40;
+    
+    const rawMaxDailyLoss = symbolSpecificLoss || this.state.currentParams?.MAX_DAILY_LOSS_CAD || -40;
     const maxDailyLoss = Math.abs(rawMaxDailyLoss); // Normalize to positive
     
     // Debug log for the condition evaluation

@@ -6,6 +6,7 @@
 
 import * as db from './db.js';
 import { log, clamp, safeDivide, getCurrentDate } from './utils.js';
+import { getState } from './stateManager.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -199,7 +200,7 @@ export async function runOptimizationCycle(currentWeights, currentParams) {
         `MaxDD=${aggregatePerformance.max_drawdown.toFixed(2)} CAD`, 'INFO');
     
     // Get current fee rate for optimization
-    const currentFeeRate = global.botState?.feeRates?.taker || 0.0026;
+    const currentFeeRate = getState()?.feeRates?.taker || 0.0026;
     
     // Optimize parameters
     const optimizedParams = await optimizeParameters(

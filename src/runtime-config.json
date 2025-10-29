@@ -40,6 +40,12 @@
     "scheduled_cleanup_threshold": 2.0,
     "minimum_value": 0.001
   },
+  "symbol_limits": {
+    "BTC/CAD": 40,
+    "ETH/CAD": 25,
+    "SOL/CAD": 20,
+    "XRP/CAD": 15
+  },
   "telegram": {
     "anti_flood_cooldown": 10,
     "message_split_threshold": 4000,

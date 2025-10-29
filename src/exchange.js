@@ -81,6 +81,12 @@ export async function fetchOHLCV(symbol, timeframe = '1m', limit = 220) {
       throw new Error(`No OHLCV data returned for ${symbol}`);
     }
 
+    // OHLCV Retry Mechanism - Check minimum candle count
+    if (ohlcv.length < 150) {
+      log(`[WARN] Not enough candles (${ohlcv.length}), skipping ${symbol}`, 'WARN');
+      throw new Error(`Insufficient candles: ${ohlcv.length} < 150 required`);
+    }
+
     // Transform to more usable format
     return ohlcv.map(candle => ({
       timestamp: candle[0],
