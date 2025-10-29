@@ -78,7 +78,7 @@ function checkMomentumConfirmation(rsi, closes, ema20, oversold) {
  */
 export function calculateIndicators(ohlcv) {
   // Input validation
-  if (!ohlcv || !Array.isArray(ohlcv) || ohlcv.length < 50) {
+  if (!ohlcv || !Array.isArray(ohlcv) || ohlcv.length < 30) {
     log('Invalid OHLCV data: insufficient data or not an array', 'ERROR');
     return null;
   }
@@ -86,7 +86,7 @@ export function calculateIndicators(ohlcv) {
   // Filter out invalid candles
   ohlcv = ohlcv.filter(c => c && c.length === 6 && c.every(v => v !== null && !isNaN(v)));
   
-  if (ohlcv.length < 50) {
+  if (ohlcv.length < 30) {
     log('Invalid OHLCV data: insufficient valid candles after filtering', 'ERROR');
     return null;
   }
