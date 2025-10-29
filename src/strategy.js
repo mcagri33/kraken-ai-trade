@@ -124,18 +124,29 @@ export function calculateIndicators(ohlcv) {
   if (!ema20 || isNaN(ema20)) ema20 = close;
   if (!ema50 || isNaN(ema50)) ema50 = close;
   if (!ema200 || isNaN(ema200)) ema200 = close;
+  // ATR uyarı spam'ını önlemek için flag sistemi
+  if (!global.atrWarningShown) global.atrWarningShown = false;
+
   if (!atr || isNaN(atr) || atr <= 0) {
-    console.warn(`[WARN] ATR invalid (${atr}) — using fallback 0.01`);
+    if (!global.atrWarningShown) {
+      console.warn(`[WARN] ATR invalid (${atr}) — using fallback 0.01`);
+      global.atrWarningShown = true;
+    }
     atr = 0.01;
   }
 
   // ATR% güvenli hesaplama
+  if (!global.atrPctWarningShown) global.atrPctWarningShown = false;
+
   if (!atrPct || isNaN(atrPct) || atrPct <= 0) {
     if (isFinite(atr) && atr > 0 && isFinite(close) && close > 0) {
       atrPct = (atr / close) * 100;
     }
     if (!atrPct || isNaN(atrPct) || atrPct <= 0) {
-      console.warn(`[WARN] ATR_PCT invalid (${atrPct}) — using safe fallback 0.01`);
+      if (!global.atrPctWarningShown) {
+        console.warn(`[WARN] ATR_PCT invalid (${atrPct}) — using safe fallback 0.01`);
+        global.atrPctWarningShown = true;
+      }
       atrPct = 0.01;
     }
   }
@@ -327,7 +338,7 @@ export function analyzeMarket(ohlcv, params, weights, botState = null) {
     if (!buyConditions.regimeOK) reasons.push(`❌ bearish regime (price ${closedPrice.toFixed(2)} < EMA200 ${ema200.toFixed(2)})`);
     if (!buyConditions.trendOK) reasons.push(`❌ bearish trend (EMA20 ${ema20.toFixed(2)} < EMA50 ${ema50.toFixed(2)})`);
     if (!buyConditions.momentumOK) reasons.push(`❌ momentum not confirmed (EMA20 not rising)`);
-    if (!buyConditions.volatilityOK) reasons.push(`❌ volatility (ATR=${atrPct.toFixed(2)}%, range: ${params.ATR_MIN}-${params.ATR_MAX})`);
+    if (!buyConditions.volatilityOK) reasons.push(`❌ volatility (ATR=${atrPct.toFixed(2)}%, range: ${params.ATR_LOW_PCT}-${params.ATR_HIGH_PCT})`);
     if (!buyConditions.volumeOK) reasons.push(`❌ volume weak (Z-score=${volZScore.toFixed(2)}, min: ${params.VOLUME_THRESHOLD})`);
     if (!buyConditions.confidenceOK) reasons.push(`❌ low confidence (${confidence.toFixed(3)} < ${confidenceThreshold.toFixed(3)})`);
     
