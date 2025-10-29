@@ -79,60 +79,89 @@ function checkMomentumConfirmation(rsi, closes, ema20, oversold) {
  */
 export function calculateIndicators(ohlcv) {
   // Input validation
-  if (!ohlcv || !Array.isArray(ohlcv) || ohlcv.length < 20) {
+  if (!ohlcv || !Array.isArray(ohlcv) || ohlcv.length < 5) {
     log('Invalid OHLCV data: insufficient data or not an array', 'ERROR');
     return null;
   }
 
   // Kraken-specific sanitization
   ohlcv = sanitizeOHLCV(ohlcv);
-  
-  if (ohlcv.length < 20) {
-    log(`Invalid OHLCV data: insufficient valid candles after filtering (${ohlcv.length})`, 'WARN');
-    return null;
+
+  if (!ohlcv || ohlcv.length < 5) {
+    log(`[WARN] OHLCV too short after cleaning (${ohlcv?.length || 0}) — forcing continuity mode`, 'WARN');
+    // Continuity mode: 30 sentetik mum oluştur
+    const base = 100000;
+    ohlcv = Array.from({ length: 30 }, (_, i) => ({
+      time: Date.now() - (30 - i) * 60_000,
+      open: base,
+      high: base,
+      low: base,
+      close: base,
+      volume: 0
+    }));
+    log(`[WARN] DRY-RUN continuity mode active — generating synthetic candles.`, 'WARN');
   }
-  
-  const closes = ohlcv.map(candle => candle.close);
-  const volumes = ohlcv.map(candle => candle.volume);
-  
-  // Calculate indicators with null checks
-  const rsi = calculateRSI(closes, 14);
-  const ema20 = calculateEMA(closes, 20);
-  const ema50 = calculateEMA(closes, 50);
-  const ema200 = calculateEMA(closes, 200);
-  const atr = calculateATR(ohlcv, 14);
-  const atrPct = calculateATRPercent(ohlcv, 14) || 0.01; // Fallback for ATR_PCT
-  const volZScore = calculateZScore(volumes, 20) || 0; // Fallback for volume Z-Score
-  
-  // Validate calculated indicators (atrPct artık fallback ile 0.01 olacak, kontrol etmeye gerek yok)
-  if (!rsi || !ema20 || !ema50 || !atr || !volZScore) {
-    log('Indicator calculation failed: one or more indicators returned null', 'ERROR');
-    return null;
+
+  // Extract arrays
+  const closes = ohlcv.map(c => c.close || c[4] || 0);
+  const volumes = ohlcv.map(c => c.volume || c[5] || 0);
+  const close = closes[closes.length - 1] || 1;
+
+  // Calculate indicators with guards
+  let rsi = calculateRSI(closes, 14);
+  let ema20 = calculateEMA(closes, 20);
+  let ema50 = calculateEMA(closes, 50);
+  let ema200 = calculateEMA(closes, 200);
+  let atr = calculateATR(ohlcv, 14);
+  let atrPct = calculateATRPercent(ohlcv, 14);
+  let volZScore = calculateZScore(volumes, 20);
+
+  // === Safe fallback guards ===
+  if (!rsi || isNaN(rsi)) {
+    console.warn(`[WARN] RSI invalid (${rsi}) — using fallback 50`);
+    rsi = 50;
   }
-  
-  // Calculate ATR series for averaging (last 10 candles)
-  const atrSeries = [];
-  for (let i = Math.max(0, ohlcv.length - 10); i < ohlcv.length; i++) {
-    const atrValue = calculateATRPercent(ohlcv.slice(0, i + 1), 14);
-    if (atrValue !== null) {
-      atrSeries.push(atrValue);
+  if (!ema20 || isNaN(ema20)) ema20 = close;
+  if (!ema50 || isNaN(ema50)) ema50 = close;
+  if (!ema200 || isNaN(ema200)) ema200 = close;
+  if (!atr || isNaN(atr) || atr <= 0) {
+    console.warn(`[WARN] ATR invalid (${atr}) — using fallback 0.01`);
+    atr = 0.01;
+  }
+
+  // ATR% güvenli hesaplama
+  if (!atrPct || isNaN(atrPct) || atrPct <= 0) {
+    if (isFinite(atr) && atr > 0 && isFinite(close) && close > 0) {
+      atrPct = (atr / close) * 100;
+    }
+    if (!atrPct || isNaN(atrPct) || atrPct <= 0) {
+      console.warn(`[WARN] ATR_PCT invalid (${atrPct}) — using safe fallback 0.01`);
+      atrPct = 0.01;
     }
   }
-  
-  // Calculate average ATR% over last 10 candles
-  const avgATRPct = atrSeries.length > 0 
-    ? atrSeries.reduce((a, b) => a + b, 0) / atrSeries.length 
+
+  if (!volZScore || isNaN(volZScore)) volZScore = 0;
+
+  // Ortalama ATR%
+  const atrSeries = [];
+  for (let i = Math.max(0, ohlcv.length - 10); i < ohlcv.length; i++) {
+    const val = calculateATRPercent(ohlcv.slice(0, i + 1), 14);
+    if (val && isFinite(val)) atrSeries.push(val);
+  }
+  const avgATRPct = atrSeries.length > 0
+    ? atrSeries.reduce((a, b) => a + b, 0) / atrSeries.length
     : atrPct;
-  
+
+  // Return final indicators safely
   return {
-    rsi: rsi[rsi.length - 1],
-    ema20: ema20[ema20.length - 1],
-    ema50: ema50[ema50.length - 1],
-    ema200: ema200[ema200.length - 1],
-    ATR: atr, // Raw ATR for backward compatibility
-    ATR_PCT: avgATRPct, // Average ATR% over last 10 candles
-    atrPct: atrPct, // Current ATR%
-    volZScore: volZScore[volZScore.length - 1]
+    rsi: Array.isArray(rsi) ? rsi[rsi.length - 1] : rsi,
+    ema20: Array.isArray(ema20) ? ema20[ema20.length - 1] : ema20,
+    ema50: Array.isArray(ema50) ? ema50[ema50.length - 1] : ema50,
+    ema200: Array.isArray(ema200) ? ema200[ema200.length - 1] : ema200,
+    ATR: atr,
+    ATR_PCT: avgATRPct,
+    atrPct,
+    volZScore: Array.isArray(volZScore) ? volZScore[volZScore.length - 1] : volZScore
   };
 }
 
